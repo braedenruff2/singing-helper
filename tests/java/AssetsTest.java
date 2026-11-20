@@ -1,0 +1,23 @@
+package app.singinghelper;
+
+/** Plain-JVM checks of the phone app's Assets helpers (run by tests/java.cjs). */
+public class AssetsTest {
+    static int fails = 0;
+    static void check(String label, boolean ok) { System.out.println((ok ? "ok   " : "FAIL ") + label); if (!ok) fails++; }
+    public static void main(String[] a) {
+        check("start page", "www/index.html".equals(Assets.path("/")) && "www/index.html".equals(Assets.path("")) && "www/index.html".equals(Assets.path(null)));
+        check("Spotify's way back (?code=) is the start page", "www/index.html".equals(Assets.path("/index.html?code=abc&state=x")));
+        check("files and folders", "www/app.js".equals(Assets.path("/app.js")) && "www/examples/echo.txt".equals(Assets.path("/examples/echo.txt")));
+        check("never outside the bundled folder", Assets.path("/../AndroidManifest.xml") == null && Assets.path("/examples/../../x") == null
+            && Assets.path("/a//b") == null && Assets.path("/a\\b") == null && Assets.path("/./app.js") == null);
+        check("mime types (worklet and modules as JavaScript)", Assets.mime("www/pitch-worklet.js").equals("text/javascript") && Assets.mime("www/index.html").equals("text/html")
+            && Assets.mime("www/examples/echo.txt").equals("text/plain") && Assets.mime("www/icon.svg").equals("image/svg+xml") && Assets.mime("www/x.bin").equals("application/octet-stream"));
+        check("only the app and Spotify login stay in the app", Assets.staysInApp("appassets.androidplatform.net") && Assets.staysInApp("accounts.spotify.com")
+            && !Assets.staysInApp("evil.example") && !Assets.staysInApp("accounts.spotify.com.evil.example") && !Assets.staysInApp(null));
+        check("version.json code", Assets.code("{\"code\": 10466128, \"name\": \"0.1.x\", \"size\": 5}") == 10466128 && Assets.code("{}") == -1 && Assets.code("{\"code\": 0}") == -1 && Assets.code(null) == -1);
+        check("version.json name", "0.1.x".equals(Assets.str("{\"code\": 1, \"name\": \"0.1.x\"}", "name")) && Assets.str("{}", "name") == null);
+        check("quote escapes for the page", Assets.quote("a\"b\\c\nd ").equals("\"a\\\"b\\\\c\\u000ad\\u2028\"") && Assets.quote(null).equals("null"));
+        System.out.println(fails == 0 ? "java: passed" : "java: " + fails + " FAILED");
+        System.exit(fails == 0 ? 0 : 1);
+    }
+}

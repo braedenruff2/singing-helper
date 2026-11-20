@@ -1,0 +1,41 @@
+#TITLE:Hear it, sing it back
+#ARTIST:Singing Helper
+#BPM:120
+#GAP:2000
+#ECHO:yes
+F 0 8 -12 listen… 
+: 10 10 -12 now you
+- 22
+F 24 8 -10 listen… 
+: 34 10 -10 now you
+- 46
+F 48 8 -8 listen… 
+: 58 10 -8 now you
+- 70
+F 72 8 -7 listen… 
+: 82 10 -7 now you
+- 94
+F 96 8 -5 listen… 
+: 106 10 -5 now you
+- 118
+F 120 8 -3 listen… 
+: 130 10 -3 now you
+- 142
+F 144 8 -12 listen… 
+: 154 10 -12 now you
+- 166
+F 168 8 -5 listen… 
+: 178 10 -5 now you
+- 190
+F 192 8 -8 listen… 
+: 202 10 -8 now you
+- 214
+F 216 8 -1 listen… 
+: 226 10 -1 now you
+- 238
+F 240 8 -10 listen… 
+: 250 10 -10 now you
+- 262
+F 264 8 -3 listen… 
+: 274 10 -3 now you
+E

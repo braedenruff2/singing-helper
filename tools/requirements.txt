@@ -1,0 +1,6 @@
+demucs>=4.0
+torch
+torchaudio
+torchcrepe
+soundfile
+numpy

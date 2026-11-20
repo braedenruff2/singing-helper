@@ -1,0 +1,6 @@
+build/
+__pycache__/
+*.idsig
+android/*.keystore
+tests/out/
+tools/last-publish.txt

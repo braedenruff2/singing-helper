@@ -1,0 +1,15 @@
+#TITLE:Sustain practice
+#ARTIST:Singing Helper
+#BPM:120
+#GAP:2000
+: 0 16 -12 ooh
+: 24 16 -10 aah
+- 44
+: 48 16 -8 ooh
+: 72 16 -5 aah
+- 92
+: 96 16 -8 ooh
+: 120 16 -10 aah
+- 140
+: 144 16 -12 ooh
+E

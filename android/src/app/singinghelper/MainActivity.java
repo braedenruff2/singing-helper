@@ -1,0 +1,199 @@
+package app.singinghelper;
+
+import android.Manifest;
+import android.app.Activity;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.view.WindowInsets;
+import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
+import android.webkit.PermissionRequest;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+
+import java.io.InputStream;
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Singing Helper on the phone: the same web app as on the PC (bundled in assets/www), shown in a WebView from the
+ * secure address https://appassets.androidplatform.net/ so the microphone and the audio worklet work. The page talks
+ * to Android through window.SHAndroid (app updates); Android calls back window.SHUpdateState().
+ */
+public class MainActivity extends Activity {
+    private static final int PICK_FILE = 1, MIC = 2;
+    private WebView web;
+    private android.widget.FrameLayout root;
+    private ValueCallback<Uri[]> fileCallback;
+    private PermissionRequest pendingMic;
+    private boolean ownScreenOnTop; // set when the app opens something over itself (file picker, a link, Settings)
+
+    private final Updater.Listener updateListener = () -> runOnUiThread(() -> {
+        if (web != null) web.evaluateJavascript("window.SHUpdateState&&SHUpdateState()", null);
+    });
+
+    @Override protected void onCreate(Bundle saved) {
+        super.onCreate(saved);
+        // practising: the screen stays on while the app is open
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        web = new WebView(this);
+        web.setBackgroundColor(Color.parseColor("#0F1115"));
+        root = new android.widget.FrameLayout(this);
+        root.setBackgroundColor(Color.parseColor("#0F1115"));
+        root.addView(web, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        // Android 15 draws edge to edge: keep the page clear of the status bar, gesture bar and keyboard
+        root.setOnApplyWindowInsetsListener((v, in) -> { int[] p = insets(in); v.setPadding(p[0], p[1], p[2], p[3]); return in; });
+        setContentView(root);
+        WebSettings s = web.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setMediaPlaybackRequiresUserGesture(false);
+        s.setAllowFileAccess(false);
+        s.setTextZoom(100);
+        web.addJavascriptInterface(new Bridge(), "SHAndroid");
+        web.setWebViewClient(new WebViewClient() {
+            @Override public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
+                Uri u = r.getUrl();
+                if (!Assets.HOST.equalsIgnoreCase(u.getHost())) return null; // the internet (Spotify, LRCLIB) as usual
+                return asset(u.getPath());
+            }
+            @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                Uri u = r.getUrl();
+                if ("https".equals(u.getScheme()) && Assets.staysInApp(u.getHost())) return false; // the app, Spotify login
+                try { ownScreenOnTop = true; startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception e) { ownScreenOnTop = false; }
+                return true;
+            }
+        });
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override public void onPermissionRequest(final PermissionRequest req) {
+                runOnUiThread(() -> {
+                    boolean wantsMic = false;
+                    for (String res : req.getResources()) if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(res)) wantsMic = true;
+                    if (!wantsMic || !Assets.HOST.equalsIgnoreCase(req.getOrigin().getHost())) { req.deny(); return; }
+                    if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                        req.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+                    } else {
+                        if (pendingMic != null) pendingMic.deny();
+                        pendingMic = req;
+                        requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, MIC);
+                    }
+                });
+            }
+            @Override public boolean onShowFileChooser(WebView v, ValueCallback<Uri[]> cb, FileChooserParams p) {
+                if (fileCallback != null) fileCallback.onReceiveValue(null);
+                fileCallback = cb;
+                Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType("*/*");
+                try { ownScreenOnTop = true; startActivityForResult(i, PICK_FILE); }
+                catch (Exception e) { ownScreenOnTop = false; fileCallback = null; cb.onReceiveValue(null); return false; }
+                return true;
+            }
+        });
+        if (saved == null || web.restoreState(saved) == null) web.loadUrl(Assets.ORIGIN + "index.html");
+    }
+
+    /** A bundled file for the page, or a 404. */
+    private WebResourceResponse asset(String urlPath) {
+        String p = Assets.path(urlPath);
+        Map<String, String> h = new HashMap<>();
+        h.put("Cache-Control", "no-cache");
+        h.put("Access-Control-Allow-Origin", Assets.ORIGIN.substring(0, Assets.ORIGIN.length() - 1));
+        if (p != null) {
+            try {
+                InputStream in = getAssets().open(p);
+                String mime = Assets.mime(p);
+                return new WebResourceResponse(mime, Assets.isText(mime) ? "UTF-8" : null, 200, "OK", h, in);
+            } catch (Exception ignored) { }
+        }
+        return new WebResourceResponse("text/plain", "UTF-8", 404, "Not Found", h, new java.io.ByteArrayInputStream(new byte[0]));
+    }
+
+    @SuppressWarnings("deprecation")
+    private static int[] insets(WindowInsets in) {
+        if (Build.VERSION.SDK_INT >= 30) {
+            android.graphics.Insets bars = in.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+            android.graphics.Insets ime = in.getInsets(WindowInsets.Type.ime());
+            return new int[]{bars.left, bars.top, bars.right, Math.max(bars.bottom, ime.bottom)};
+        }
+        return new int[]{in.getSystemWindowInsetLeft(), in.getSystemWindowInsetTop(), in.getSystemWindowInsetRight(), in.getSystemWindowInsetBottom()};
+    }
+
+    @Override public void onRequestPermissionsResult(int req, String[] perms, int[] res) {
+        if (req != MIC || pendingMic == null) return;
+        if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) pendingMic.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+        else pendingMic.deny();
+        pendingMic = null;
+    }
+
+    @Override protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req == PICK_FILE && fileCallback != null) {
+            Uri u = res == RESULT_OK && data != null ? data.getData() : null;
+            fileCallback.onReceiveValue(u == null ? null : new Uri[]{u});
+            fileCallback = null;
+        }
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        ownScreenOnTop = false;
+        if (web != null) web.onResume();
+        Updater.check(getApplicationContext(), false, updateListener);
+    }
+
+    @Override protected void onPause() {
+        // the page stops the mic itself when hidden; WebView timers pause too
+        if (web != null) web.onPause();
+        super.onPause();
+    }
+
+    @Override protected void onStop() {
+        super.onStop();
+        // install a downloaded update while he's away from the app (it restarts the app); not while the app has its
+        // own screen on top (the chart file picker, a link): the restart would lose it
+        if (!isChangingConfigurations() && !ownScreenOnTop && fileCallback == null && Updater.readyCode(this) > 0 && Updater.mayInstall(this)) {
+            final Context app = getApplicationContext();
+            new Thread(() -> Updater.install(app), "sh-update-install").start();
+        }
+    }
+
+    @Override protected void onSaveInstanceState(Bundle out) { super.onSaveInstanceState(out); if (web != null) web.saveState(out); }
+
+    @SuppressWarnings("deprecation")
+    @Override public void onBackPressed() {
+        if (web != null && web.canGoBack()) web.goBack(); else super.onBackPressed();
+    }
+
+    @Override protected void onDestroy() {
+        if (web != null) { root.removeView(web); web.destroy(); web = null; }
+        super.onDestroy();
+    }
+
+    /** window.SHAndroid in the page (called on a background thread). */
+    class Bridge {
+        @JavascriptInterface public boolean isApp() { return true; }
+        @JavascriptInterface public String updateStatus() { return Updater.status(getApplicationContext()); }
+        @JavascriptInterface public void updateCheck() { Updater.check(getApplicationContext(), true, updateListener); }
+        @JavascriptInterface public void updateAllow() {
+            runOnUiThread(() -> {
+                try { ownScreenOnTop = true; startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))); }
+                catch (Exception e) { ownScreenOnTop = false; }
+            });
+        }
+        @JavascriptInterface public void updateInstall() {
+            final Context app = getApplicationContext();
+            new Thread(() -> Updater.install(app), "sh-update-install").start();
+        }
+    }
+}
