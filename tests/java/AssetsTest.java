@@ -23,6 +23,11 @@ public class AssetsTest {
             && !Assets.updateChecksOut("app.singinghelper", "app.singinghelper", 30470000L, 30474022L) && !Assets.updateChecksOut("other.app", "app.singinghelper", 5, 5)
             && !Assets.updateChecksOut(null, "app.singinghelper", 5, 5));
         check("a waiting update isn't fetched again", Assets.alreadyHave(7, 7L, true) && !Assets.alreadyHave(7, 7L, false) && !Assets.alreadyHave(6, 7L, true) && !Assets.alreadyHave(0, 0L, true));
+        String[] two = {"android.permission.RECORD_AUDIO", "android.permission.BLUETOOTH_CONNECT"};
+        check("each permission's own answer (mic + Nearby devices asked together)", Assets.answered(two, new int[]{0, -1}, "android.permission.RECORD_AUDIO") == 1
+            && Assets.answered(two, new int[]{0, -1}, "android.permission.BLUETOOTH_CONNECT") == -1
+            && Assets.answered(new String[]{"android.permission.BLUETOOTH_CONNECT"}, new int[]{0}, "android.permission.RECORD_AUDIO") == 0
+            && Assets.answered(two, new int[]{}, "android.permission.RECORD_AUDIO") == 0 && Assets.answered(null, null, "x") == 0);
         System.out.println(fails == 0 ? "java: passed" : "java: " + fails + " FAILED");
         System.exit(fails == 0 ? 0 : 1);
     }

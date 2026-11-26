@@ -31,7 +31,7 @@ import java.util.Map;
  * to Android through window.SHAndroid (app updates); Android calls back window.SHUpdateState().
  */
 public class MainActivity extends Activity {
-    private static final int PICK_FILE = 1, MIC = 2, NOTIFY = 3;
+    private static final int PICK_FILE = 1, MIC = 2, NOTIFY = 3, BT = 4;
     /** An update waiting to install goes in only after he has been away this long (not when he just switches to
      *  Spotify or locks the screen for a moment: the restart would lose a loaded chart). */
     static final long INSTALL_AFTER_MS = 10 * 60_000L;
@@ -93,12 +93,17 @@ public class MainActivity extends Activity {
                     boolean wantsMic = false;
                     for (String res : req.getResources()) if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(res)) wantsMic = true;
                     if (!wantsMic || !Assets.HOST.equalsIgnoreCase(req.getOrigin().getHost())) { req.deny(); return; }
+                    // a Bluetooth headset's mic is only offered to the page with "Nearby devices" (Android 12+): asked once,
+                    // together with the mic, so the headset shows in the mic list
+                    boolean askBt = Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+                        && !getSharedPreferences("asked", MODE_PRIVATE).getBoolean("bt", false);
                     if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                         req.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+                        if (askBt) requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, BT);
                     } else {
                         if (pendingMic != null) pendingMic.deny();
                         pendingMic = req;
-                        requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, MIC);
+                        requestPermissions(askBt ? new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.BLUETOOTH_CONNECT} : new String[]{Manifest.permission.RECORD_AUDIO}, MIC);
                     }
                 });
             }
@@ -149,8 +154,12 @@ public class MainActivity extends Activity {
             if (allowAfterNotify) { allowAfterNotify = false; openUnknownSources(); }
             return;
         }
+        if ((req == MIC || req == BT) && Assets.answered(perms, res, Manifest.permission.BLUETOOTH_CONNECT) != 0) {
+            getSharedPreferences("asked", MODE_PRIVATE).edit().putBoolean("bt", true).apply();
+            if (web != null) web.evaluateJavascript("window.SHMicsChanged&&SHMicsChanged()", null); // the headset may show now
+        }
         if (req != MIC || pendingMic == null) return;
-        if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) pendingMic.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+        if (Assets.answered(perms, res, Manifest.permission.RECORD_AUDIO) > 0) pendingMic.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
         else pendingMic.deny();
         pendingMic = null;
     }

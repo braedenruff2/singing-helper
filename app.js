@@ -63,11 +63,77 @@ async function startMic() {
   try { await openMic(); } finally { micStarting = false; }
 }
 
+// ---------------------------------------------------------------- choosing the mic
+// He has a Bluetooth headset and an external mic: the choice is kept by device id (and its name, since a browser can
+// give the same mic a new id) and used on every Start mic. A mic that isn't there falls back to the default, saying so.
+const BT_RE = /bluetooth|headset|hands-?free|hfp|sco|airpods|buds|\bbt\b/i;
+function savedMic() { try { return JSON.parse(localStorage.getItem('mic') || 'null') || null; } catch (_) { return null; } }
+function saveMic(m) { try { if (m) localStorage.setItem('mic', JSON.stringify(m)); else localStorage.removeItem('mic'); } catch (_) { /* ignore */ } }
+async function listMics() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
+  let all = [];
+  try { all = await navigator.mediaDevices.enumerateDevices(); } catch (_) { return []; }
+  // 'default' / 'communications' are aliases of a real device: the first option already means "default"
+  return all.filter((d) => d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications');
+}
+// the saved mic among the ones there now: same id, or else the same name
+function findMic(mics, m) {
+  if (!m) return null;
+  return mics.find((d) => d.deviceId === m.id) || (m.label ? mics.find((d) => d.label && d.label === m.label) : null) || null;
+}
+async function fillMics() {
+  const sel = $('mic-pick'); if (!sel) return;
+  const mics = await listMics(), m = savedMic(), cur = findMic(mics, m);
+  if (m && cur && cur.deviceId !== m.id) saveMic({ id: cur.deviceId, label: cur.label || m.label }); // the same mic under a new id
+  const named = mics.some((d) => d.label);
+  sel.innerHTML = '';
+  const def = document.createElement('option'); def.value = ''; def.textContent = 'Phone / computer default'; sel.append(def);
+  mics.forEach((d, i) => { const o = document.createElement('option'); o.value = d.deviceId; o.textContent = d.label || 'Mic ' + (i + 1); sel.append(o); });
+  if (m && !cur) { // chosen before and not listed: keep showing it, so the choice isn't lost
+    // (until the mic is allowed in this visit the browser lists no mics at all, so "not connected" isn't known yet)
+    const o = document.createElement('option'); o.value = m.id; o.textContent = (m.label || 'Your mic') + (named ? ' (not connected)' : ''); sel.append(o);
+  }
+  sel.value = m ? (cur ? cur.deviceId : m.id) : '';
+  micHint();
+  if (!named && mics.length) $('mic-hint').textContent = 'Press Start mic once to see the mics’ names.';
+}
+function micHint(label) {
+  const h = $('mic-hint'); if (!h) return;
+  const sel = $('mic-pick'), name = label || (sel && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : '');
+  h.textContent = BT_RE.test(name)
+    ? 'Bluetooth mics add delay (often 0.1–0.2 s) and sound thinner, so the note shows a little late. A wired or USB mic is quickest.'
+    : 'Pick the headset or external mic here. ↻ looks again after plugging one in.';
+}
+function micConstraints() {
+  const audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1, latency: 0 };
+  const m = savedMic();
+  if (m && m.id) audio.deviceId = { exact: m.id };
+  return audio;
+}
+
 async function openMic() {
   // Every browser DSP stage adds buffering, so turn them all off.
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1, latency: 0 },
-  });
+  let stream, note = '';
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints() });
+  } catch (e) {
+    const m = savedMic();
+    if (!m || !(e.name === 'OverconstrainedError' || e.name === 'NotFoundError' || e.name === 'NotReadableError')) throw e;
+    // the chosen mic isn't there (unplugged, switched off, a new id): try it by name, else the default
+    const again = (await listMics()).find((d) => d.label && d.label === m.label);
+    const audio = micConstraints(); delete audio.deviceId;
+    if (again) audio.deviceId = { exact: again.deviceId };
+    stream = await navigator.mediaDevices.getUserMedia({ audio });
+    // the names only appear once a mic is open in this visit: look once more for it by name
+    const late = !again && m.label ? (await listMics()).find((d) => d.label === m.label) : null;
+    if (late) {
+      stream.getTracks().forEach((t) => t.stop());
+      stream = await navigator.mediaDevices.getUserMedia({ audio: Object.assign(audio, { deviceId: { exact: late.deviceId } }) });
+    }
+    const found = again || late;
+    if (found) saveMic({ id: found.deviceId, label: found.label });
+    else note = (m.label || 'Your mic') + ' isn’t connected: using the default mic · ';
+  }
   let ctx;
   try {
     ctx = await audioCtx();
@@ -90,7 +156,10 @@ async function openMic() {
   const parts = [`${(ctx.sampleRate / 1000).toFixed(1)} kHz`, `pitch updates every ${(128 / ctx.sampleRate * 1000).toFixed(1)} ms`, 'new notes lock in ~8–16 ms'];
   if (ctx.baseLatency) parts.push(`audio buffer ${(ctx.baseLatency * 1000).toFixed(1)} ms`);
   if (s.latency) parts.push(`device ${(s.latency * 1000).toFixed(1)} ms`);
-  $('lat').textContent = parts.join(' · ');
+  if (track.label) parts.unshift(track.label);
+  $('lat').textContent = note + parts.join(' · ');
+  fillMics(); // names are only given once the mic is allowed
+  micHint(track.label);
   $('start').textContent = 'Mic on';
   $('start').disabled = true;
   // unplugged headset, Bluetooth switching, another app taking the mic: let Start mic open it again
@@ -1028,6 +1097,17 @@ $('capture').onclick = () => (state.refTrack ? stopCapture() : captureSong().cat
 window.__captureSong = captureSong; // lets tests feed a synthetic stream
 window.__songTarget = () => songTarget(songPos()); // for tests
 $('fold').onchange = (e) => { foldOn = e.target.checked; };
+$('mic-pick').onchange = async (e) => {
+  const sel = e.target, id = sel.value, label = id && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent.replace(/ \(not connected\)$/, '') : '';
+  saveMic(id ? { id, label } : null);
+  micHint();
+  sel.blur(); // keys go back to the app
+  if (state.node) { stopMic('Switching mic…'); await startMic().catch((err) => { $('lat').textContent = 'Mic error: ' + err.message; }); }
+};
+$('mic-refresh').onclick = () => fillMics();
+window.SHMicsChanged = () => fillMics(); // the phone app: "Nearby devices" was just allowed, so the headset may be listed now
+if (navigator.mediaDevices && 'ondevicechange' in navigator.mediaDevices) navigator.mediaDevices.addEventListener('devicechange', () => fillMics());
+fillMics();
 $('gate').oninput = (e) => state.node && state.node.port.postMessage({ gate: +e.target.value });
 $('offset').oninput = (e) => setOffset(+e.target.value);
 $('loop').onclick = toggleLoop;

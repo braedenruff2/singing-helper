@@ -77,6 +77,12 @@ final class Assets {
         try { long c = Long.parseLong(num(json, "code")); return c > 0 ? c : -1; } catch (NumberFormatException e) { return -1; }
     }
     /** The bridge answers only our own page (appassets), never a page loaded in the app such as the Spotify login. */
+    /* One permission's answer in onRequestPermissionsResult: 1 granted, -1 refused, 0 not in this answer (or cut short). */
+    static int answered(String[] perms, int[] res, String name) {
+        if (perms == null || res == null) return 0;
+        for (int i = 0; i < perms.length && i < res.length; i++) if (name.equals(perms[i])) return res[i] == 0 ? 1 : -1; // 0 = PERMISSION_GRANTED
+        return 0;
+    }
     static boolean ownPage(String host) { return host != null && HOST.equalsIgnoreCase(host); }
     /** A downloaded update is this app and exactly the version version.json named (a stale cached APK is not). */
     static boolean updateChecksOut(String pkg, String ours, long gotCode, long wantCode) { return ours != null && ours.equals(pkg) && gotCode == wantCode; }
