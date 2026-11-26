@@ -4,7 +4,7 @@
 import { readFileSync, readdirSync } from 'fs';
 import {
   readUltraStar, writeUltraStar, headValue, setHead, chartToUltraStar, parseUltraStar,
-  Scorer, LEVELS, foldTo, hzToMidi, rating, lyricView, encodePitch, decodeMessage, newer, PORT,
+  Scorer, LEVELS, foldTo, hzToMidi, rating, lyricView, estimateLag, encodePitch, decodeMessage, newer, PORT,
 } from '../karaoke.js';
 
 let fails = 0;
@@ -79,6 +79,27 @@ for (const f of readdirSync(ex).filter((f) => f.endsWith('.txt'))) {
   back.reset(); check('reset clears the score', back.points === 0);
   check('ratings', rating(9500) === 'Superstar' && rating(0) === 'Warming up' && rating(6500) === 'Rising star');
   check('a chart with only freestyle notes scores 0, no NaN', new Scorer({ notes: [{ t: 0, dur: 100, midi: 60, free: true }] }).points === 0);
+}
+// ---- how late the pitch arrives
+{
+  const chart = parseUltraStar(readFileSync(new URL('warmup-scale.txt', ex), 'utf8'));
+  const sing = (lag, wobble = 0) => {
+    const fr = [];
+    for (let t = 0; t < 40000; t += 20) {
+      const n = chart.notes.find((x) => t - lag >= x.t && t - lag < x.t + x.dur);
+      fr.push({ t, midi: n ? n.midi - 12 + wobble * Math.sin(t / 37) : null }); // an octave low, slightly wobbly
+    }
+    return fr;
+  };
+  for (const lag of [0, 120, 180, 320]) {
+    const e = estimateLag(chart, sing(lag, 0.2));
+    check('estimateLag finds a ' + lag + ' ms delay (within 30 ms)', e && Math.abs(e.lag - lag) <= 30, JSON.stringify(e));
+  }
+  check('not enough singing: no guess', estimateLag(chart, sing(150).slice(0, 40)) === null);
+  check('nothing sung: no guess', estimateLag(chart, sing(150).map((f) => ({ t: f.t, midi: null }))) === null);
+  const held = { notes: [{ t: 0, dur: 20000, midi: 60 }] };
+  const hf = []; for (let t = 0; t < 20000; t += 20) hf.push({ t: t + 200, midi: 60 });
+  check('one long held note: any delay fits, so no guess', estimateLag(held, hf) === null, JSON.stringify(estimateLag(held, hf)));
 }
 // ---- lyric view
 {

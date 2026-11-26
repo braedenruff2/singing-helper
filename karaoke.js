@@ -128,6 +128,40 @@ export function rating(points) {
   return points >= 9000 ? 'Superstar' : points >= 7500 ? 'Lead singer' : points >= 6000 ? 'Rising star' : points >= 4000 ? 'Hero' : points >= 2000 ? 'Amateur' : 'Warming up';
 }
 
+// ---- How late the singer's pitch reaches the TV ----------------------------------------------------------------
+// frames: [{t, midi}] with t = the song's time when each pitch arrived (no delay taken off). Tries delays 0..500 ms
+// and keeps the one that puts the most pitches on the right note (any octave); null when there wasn't enough singing
+// on notes to tell (or no delay stands out). Note changes are what give it away: a held note fits any delay.
+export function estimateLag(chart, frames, opts = {}) {
+  const notes = (chart.notes || []).filter((n) => !n.free && !n.listen);
+  const voiced = frames.filter((f) => f.midi != null && isFinite(f.midi));
+  if (!notes.length || voiced.length < (opts.min || 60)) return null;
+  const tol = opts.tolerance != null ? opts.tolerance : 0.5;
+  let k = 0;
+  const at = (t) => { // the note sung at song time t (frames are in time order, so walk forward; restart on a step back)
+    if (k >= notes.length || notes[k].t > t) k = 0;
+    while (k + 1 < notes.length && notes[k + 1].t <= t) k++;
+    const n = notes[k];
+    return n && t >= n.t && t < n.t + n.dur ? n : null;
+  };
+  let best = null;
+  const scores = [];
+  for (let lag = 0; lag <= 500; lag += 10) {
+    k = 0;
+    let hits = 0;
+    for (const f of voiced) { const n = at(f.t - lag); if (n && Math.abs(foldTo(f.midi, n.midi) - n.midi) <= tol) hits++; }
+    scores.push(hits);
+    if (!best || hits > best.hits) best = { lag, hits };
+  }
+  if (best.hits < (opts.minHits || 40)) return null;
+  const sorted = scores.slice().sort((a, b) => a - b), median = sorted[sorted.length >> 1];
+  if (best.hits < median * 1.1) return null; // flat: every delay fits about as well (held notes only)
+  // the middle of the best plateau (several delays often fit equally well)
+  const top = scores.map((h, i) => (h >= best.hits * 0.98 ? i * 10 : -1)).filter((x) => x >= 0);
+  const lag = top[top.length >> 1];
+  return { lag, hits: best.hits, frames: voiced.length };
+}
+
 // ---- The lyric lines on screen -------------------------------------------------------------------------------
 // The line being sung (or coming up next) and the one after it; each word's share sung so far (for the wipe), and
 // a countdown (0..1) while a line is still to come after a gap of more than 3 s.

@@ -129,13 +129,16 @@ it to the TV. No screen mirroring (it adds about a second of delay).
   **Pitch bars: On** the song's notes scrolling past (gold = golden notes, green once sung right) with your pitch as
   dots (white on the note, red off it) and a karaoke-style score out of 10,000 (golden notes count double; any octave
   counts; **Level** Easy/Normal/Hard = within 1.5 / 0.75 / 0.5 semitones). The best score per song is kept on the TV.
-  **Mic delay** (default 120 ms) lines your pitch up with the song: raise it if your pitch dots trail the bars.
+  **Mic delay** (default 120 ms) lines your pitch up with the song: raise it if your pitch dots trail the bars. After
+  a song the TV works out how late your pitch really arrived (from where your note changes land against the song's)
+  and, when it's clearly off, offers that delay with the score it would have given ("Use 330 ms from now on").
 - **Adding songs**: the TV shows an address and a 4-digit code: on a PC on the same Wi-Fi, open
   `http://<TV address>:47322/`, type the code, pick an UltraStar chart (`.txt`) and its audio file (the name in the
   chart's `#MP3:` line), and send. They show up in the list straight away. Only songs he owns. The page only takes
   charts, audio and pictures (200 MB at most each), into the TV app's own songs folder.
 - **The phone**: in the Singing Helper phone app, side panel **Karaoke on TV**: **Find TV** (or type the address the
-  TV shows), then tick **Send my pitch to the TV** (it starts the mic). It sends about 50 pitch readings a second over
+  TV shows), then tick **Send my pitch to the TV** (it starts the mic). On the TV's song list the top line then says
+  "Phone mic connected · hearing A3" while you sing: a quick check that the mic reaches the TV before you start. It sends about 50 pitch readings a second over
   Wi-Fi (UDP port 47321, only to home-network addresses) while you sing. Keep the app open on the phone while singing
   (it lets go of the mic in the background).
 - **One singer only**: the receiver mixes every mic into one signal, so for duets or group songs untick sending on
@@ -259,6 +262,8 @@ From how the project was built:
 
 ## Changes by the autopilot
 
+- **26 Nov 2026 (TV Mic delay)**: after a song the TV measures how late the phone's pitch arrives (`estimateLag` in
+  karaoke.js) and offers that Mic delay with the score it would have given. Tests: karaoke.mjs, e2e tv.
 - **26 Nov 2026 (karaoke on the TV)**: first version of his TV karaoke request (see "Karaoke on the TV"): the TV page
   and Fire TV app, the phone's "Karaoke on TV" sender, UltraStar read/write, karaoke scoring. Tests: `tests/karaoke.mjs`,
   `tests/e2e/tv.cjs`, `tests/e2e/tv-phone.cjs`, Java `TvFilesTest` (+ `Assets.lanIp`). Also: `tools/build-apk.sh`

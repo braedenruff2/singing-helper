@@ -5,7 +5,7 @@
 // duets or groups turn pitch bars off and just sing.
 // Songs: songs/index.json next to this page ([{"txt": "songs/x.txt", "audio": "songs/x.mp3"}]; "audio" defaults to
 // the chart's #MP3 next to it), plus three warm-ups from examples/ (no audio; they run on a clock).
-import { parseUltraStar, Scorer, LEVELS, foldTo, hzToMidi, rating, lyricView, decodeMessage, newer } from './karaoke.js';
+import { parseUltraStar, Scorer, LEVELS, foldTo, hzToMidi, rating, lyricView, decodeMessage, newer, estimateLag } from './karaoke.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -13,14 +13,14 @@ const store = {
   set(k, v) { try { localStorage.setItem('tv_' + k, JSON.stringify(v)); } catch (_) { /* storage off: keep going */ } },
 };
 const WARMUPS = ['examples/warmup-scale.txt', 'examples/arpeggios.txt', 'examples/sustain.txt'];
-const LAGS = [0, 40, 80, 120, 160, 200, 250, 300];
+const LAGS = [0, 40, 80, 120, 160, 200, 250, 300, 400, 500];
 const NATIVE = window.SHTVAndroid || null;
 
 const S = {
   songs: [], song: null, chart: null, scorer: null, screen: 'library',
   pitchOn: store.get('pitch', true), level: store.get('level', 'normal'), lag: store.get('lag', 120),
   clock: null,  // {base, at}: song ms at performance.now() = at (no audio, or between audio updates)
-  paused: false, trail: [], lastSeq: null, phone: null, lastMsg: 0, ended: false,
+  paused: false, trail: [], raw: [], lastSeq: null, phone: null, lastMsg: 0, ended: false,
 };
 
 // ---------------------------------------------------------------- the phone's pitch
@@ -36,7 +36,9 @@ window.SHTV = {
     if (!newer(m.seq, S.lastSeq)) return false;
     S.lastSeq = m.seq; S.lastMsg = now; S.problem = null;
     if (!S.phone) { S.phone = 'phone'; status(); }
+    if (m.hz > 0) S.heard = { hz: m.hz, at: now };
     pitch(m.hz, phoneToHere(m.ms, now));
+    if (S.screen === 'library' && now - (S.statusAt || 0) > 250) { S.statusAt = now; status(); } // a few times a second is plenty
     return true;
   },
   // the Android back button: true when the page handled it
@@ -62,6 +64,7 @@ function pitch(hz, arrived) {
   if (S.screen !== 'sing' || !S.pitchOn || S.paused || !S.scorer) return;
   const t = songTime(arrived) - S.lag;
   const midi = hz > 0 ? hzToMidi(hz) : null;
+  if (S.raw.length < 30000) S.raw.push({ t: t + S.lag, midi }); // as it arrived: for working out the right Mic delay
   S.scorer.frame(t, midi);
   S.trail.push({ t, midi });
   if (S.trail.length > 400) S.trail.splice(0, S.trail.length - 400);
@@ -84,13 +87,17 @@ function status() {
   const live = S.lastMsg && performance.now() - S.lastMsg < 4000;
   const info = NATIVE && NATIVE.info ? safeJson(NATIVE.info()) : null;
   el.className = live ? 'on' : '';
+  // while choosing a song: what the phone hears right now, to check the mic before singing
+  const hearing = live && S.heard && performance.now() - S.heard.at < 400 ? ' · hearing ' + noteName(hzToMidi(S.heard.hz)) : '';
   const add = $('add');
   add.textContent = info && info.upload ? 'Add songs: on a PC on the same Wi-Fi, open ' + info.upload + ' and type the code ' + info.code + '.' : '';
   if (S.problem) el.textContent = S.problem;
-  else if (live) el.textContent = 'Phone mic connected' + (S.phone && S.phone !== 'phone' ? ' (' + S.phone + ')' : '');
+  else if (live) el.textContent = 'Phone mic connected' + (S.phone && S.phone !== 'phone' ? ' (' + S.phone + ')' : '') + hearing;
   else if (info && info.ip) el.textContent = 'Phone mic: on the phone, Karaoke on TV > ' + info.ip;
   else el.textContent = S.pitchOn ? 'Phone mic: not connected (pitch bars need the TV app)' : '';
 }
+const NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+function noteName(midi) { const m = Math.round(midi); return NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1); }
 function safeJson(s) { try { return JSON.parse(s); } catch (_) { return null; } }
 setInterval(() => { if (S.screen === 'library') status(); }, 2000);
 
@@ -154,7 +161,7 @@ function controls() {
 }
 $('pitch').onclick = () => { S.pitchOn = !S.pitchOn; store.set('pitch', S.pitchOn); controls(); status(); };
 $('level').onclick = () => { const k = Object.keys(LEVELS); S.level = k[(k.indexOf(S.level) + 1) % k.length]; store.set('level', S.level); controls(); };
-$('lag').onclick = () => { S.lag = LAGS[(LAGS.indexOf(S.lag) + 1) % LAGS.length]; store.set('lag', S.lag); controls(); };
+$('lag').onclick = () => { const i = LAGS.findIndex((x) => x > S.lag); S.lag = LAGS[i < 0 ? 0 : i]; store.set('lag', S.lag); controls(); }; // also from a measured value between steps
 
 // ---------------------------------------------------------------- singing
 const audio = $('audio');
@@ -169,7 +176,7 @@ function start(song) {
   S.song = song;
   S.chart = parseUltraStar(song.text);
   S.scorer = new Scorer(S.chart, { tolerance: LEVELS[S.level] || LEVELS.normal });
-  S.trail = []; S.paused = false; S.ended = false; $('paused').hidden = true;
+  S.trail = []; S.raw = []; S.paused = false; S.ended = false; $('paused').hidden = true;
   $('now').textContent = song.title + (song.artist ? ' · ' + song.artist : '');
   $('score').textContent = '0';
   $('line').dataset.cur = ''; $('line').textContent = ''; $('next').textContent = ''; // another song's words must not stay
@@ -223,7 +230,23 @@ function finish() {
   $('final').textContent = S.pitchOn ? pts.toLocaleString() : '♪';
   $('rating').textContent = S.pitchOn ? rating(pts) : 'Nice singing';
   $('best').textContent = S.pitchOn ? (best == null || pts > best ? 'Your best for this song' : 'Your best: ' + best.toLocaleString()) : 'Pitch bars were off, so no score.';
+  lagOffer();
   show('done');
+}
+// After a song: if the pitch clearly reached the TV later (or earlier) than Mic delay allows for, offer the delay that
+// fits, with the score it would have given. One tap sets it for next time.
+function lagOffer() {
+  const box = $('lag-offer'); box.hidden = true; box.innerHTML = '';
+  if (!S.pitchOn || !S.raw || !S.chart) return;
+  const e = estimateLag(S.chart, S.raw);
+  if (!e || Math.abs(e.lag - S.lag) < 40) return;
+  const sc = new Scorer(S.chart, { tolerance: LEVELS[S.level] || LEVELS.normal });
+  for (const f of S.raw) sc.frame(f.t - e.lag, f.midi);
+  const nice = Math.round(e.lag / 10) * 10;
+  box.innerHTML = '<p>Your pitch reached the TV about <b>' + nice + ' ms</b> after the song (Mic delay is ' + S.lag + ' ms). With ' + nice + ' ms this would have scored ' + sc.points.toLocaleString() + '.</p>';
+  const b = document.createElement('button'); b.id = 'lag-use'; b.textContent = 'Use ' + nice + ' ms from now on';
+  b.onclick = () => { S.lag = nice; store.set('lag', nice); controls(); box.innerHTML = '<p>Mic delay set to ' + nice + ' ms.</p>'; $('again').focus(); };
+  box.appendChild(b); box.hidden = false;
 }
 audio.onended = () => { if (S.screen === 'sing') finish(); };
 // Home on the remote, or another app: the song pauses (it would keep playing over the home screen)

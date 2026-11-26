@@ -43,6 +43,8 @@
   #final { font-size: 4em; font-weight: 800; margin: 0; font-variant-numeric: tabular-nums; }
   #rating { font-size: 1.8em; color: var(--gold); margin: 0; }
   #done .row { display: flex; gap: .8em; margin-top: .6em; }
+  #lag-offer { max-width: 40em; }
+  #lag-offer p { margin: 0 0 .5em; }
 </style>
 </head>
 <body>
@@ -70,6 +72,7 @@
   <p id="final">0</p>
   <p id="rating"></p>
   <p class="meta" id="best"></p>
+  <div id="lag-offer" class="meta" hidden></div>
   <div class="row"><button id="again">Sing again</button><button id="back">Back to songs</button></div>
 </section>
 <script type="module" src="tv.js"></script>

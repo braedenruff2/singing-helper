@@ -56,6 +56,8 @@ test('tv', async ({ newPage, url, check, shot, sleep }) => {
   await p.keyboard.press('ArrowRight'); await p.keyboard.press('Enter');
   await p.waitForSelector('#library:not([hidden])');
   check('back in the list: the best score shows by the song', /best \d/.test(await p.textContent('#songs button[data-i="0"]')), await p.textContent('#songs button[data-i="0"]'));
+  await p.evaluate(() => SHTV.message('{"v":1,"type":"pitch","seq":800000,"hz":220,"conf":1}'));
+  check('choosing a song: the status shows the note the phone hears (mic check)', /hearing A3/.test(await p.textContent('#status')), await p.textContent('#status'));
   check('status: phone mic connected (messages came in)', /connected/.test(await p.textContent('#status')) && !/not connected/.test(await p.textContent('#status')), await p.textContent('#status'));
 
   // ---- late or repeated messages
@@ -152,6 +154,36 @@ test('tv', async ({ newPage, url, check, shot, sleep }) => {
   await q.evaluate(() => SHTV.back());
   await q.evaluate(() => SHTV.problem('The TV couldn\'t listen for the phone: port in use'));
   check('a listening problem is shown', /port in use/.test(await q.textContent('#status')));
+
+  // ---- the pitch reaches the TV 200 ms later than Mic delay allows: the score screen offers the delay that fits
+  const SCALE = '#TITLE:Scale\n#ARTIST:Tester\n#BPM:300\n#GAP:500\n' + [0, 2, 4, 5, 7, 9, 11, 12, 11, 9, 7, 5, 4, 2, 0].map((p, i) => ': ' + (i * 8) + ' 6 ' + p + ' la ').join('\n') + '\nE\n';
+  const r3 = await newPage({ viewport: { width: 960, height: 540 } });
+  await r3.route('**/songs/index.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify([{ txt: 'songs/scale.txt' }]) }));
+  await r3.route('**/songs/scale.txt', (r) => r.fulfill({ contentType: 'text/plain', body: SCALE }));
+  await r3.goto(url + 'tv.html'); await r3.waitForSelector('#songs button');
+  check('Mic delay starts at 120 ms', (await r3.textContent('#lag')) === 'Mic delay: 120 ms');
+  await r3.click('#songs button[data-i="0"]'); await r3.waitForSelector('#sing:not([hidden])');
+  await r3.evaluate(() => {
+    const P = [0, 2, 4, 5, 7, 9, 11, 12, 11, 9, 7, 5, 4, 2, 0], notes = P.map((p, i) => ({ t: 500 + i * 400, dur: 300, midi: 60 + p }));
+    let seq = 0;
+    window.__sim3 = setInterval(() => {
+      const st = SHTV.state(); if (st.screen !== 'sing') return;
+      const t = st.t - 320, n = notes.find((x) => t >= x.t && t < x.t + x.dur); // really 320 ms late
+      SHTV.message(JSON.stringify({ v: 1, type: 'pitch', seq: ++seq, hz: n ? 440 * Math.pow(2, (n.midi - 69) / 12) : 0, conf: 0.9 }));
+    }, 20);
+  });
+  await r3.waitForSelector('#done:not([hidden])', { timeout: 12000 });
+  await r3.evaluate(() => clearInterval(window.__sim3));
+  const offer = await r3.textContent('#lag-offer');
+  const m = /about (\d+) ms after/.exec(offer), was = +(await r3.textContent('#final')).replace(/\D/g, ''), would = +((/would have scored ([\d,]+)/.exec(offer) || [])[1] || '0').replace(/\D/g, '');
+  check('late pitch: the score screen says how late (about 320 ms)', m && Math.abs(+m[1] - 320) <= 40, offer);
+  check('... and that the score would have been higher', would > was + 1000, was + ' -> ' + would);
+  await r3.click('#lag-use');
+  check('one tap sets Mic delay for next time', /Mic delay set to/.test(await r3.textContent('#lag-offer')) && (await r3.evaluate(() => JSON.parse(localStorage.getItem('tv_lag')))) === +m[1]);
+  await r3.click('#back');
+  check('the list shows the new Mic delay', (await r3.textContent('#lag')) === 'Mic delay: ' + m[1] + ' ms', await r3.textContent('#lag'));
+  await r3.click('#lag');
+  check('Mic delay steps on from a measured value', /Mic delay: (400|500|0) ms/.test(await r3.textContent('#lag')), await r3.textContent('#lag'));
 
   // ---- a song whose audio is missing: lyrics and bars on the clock, and it still ends with a score
   const r2 = await newPage({ viewport: { width: 960, height: 540 } });
