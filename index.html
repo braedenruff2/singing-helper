@@ -131,7 +131,8 @@
         <p class="hint" id="gen-status">Picks out the vocals and their pitch, then adds lyrics.</p>
       </div>
       <div class="row" style="margin-top:10px"><span class="hint">Key</span><button id="key-down" aria-label="Key down">−</button><b id="key-v" style="min-width:2ch;text-align:center">0</b><button id="key-up" aria-label="Key up">+</button><span class="hint">semitones (remembered per song)</span></div>
-      <div class="row" style="margin-top:10px"><button id="capture">Live song pitch</button></div>
+      <div class="row" style="margin-top:10px"><button id="capture">Live song pitch</button><button id="rec-notes">Make notes from this song</button></div>
+      <p class="hint" id="rec-status">Play a song on Spotify (web player in Chrome), press this and share that tab’s audio: the singer’s notes are written down as it plays, with the synced lyrics, and saved as the song’s chart. Play it to the end (skipping back is fine). Only the notes are kept, never the sound.</p>
       <label><input id="ahead" type="checkbox"> Show the song <select id="ahead-s" aria-label="Seconds ahead"><option value="1">1 s</option><option value="2" selected>2 s</option><option value="3">3 s</option><option value="4">4 s</option></select> ahead</label>
       <p class="hint">No chart? Play the song in the Spotify web player (open.spotify.com) in Chrome, click this, pick that tab and turn on “Share tab audio”. Shows the singer's pitch as it plays. With “ahead” ticked (set it before you start), the tab goes quiet and you hear the song through this page that many seconds late, so its notes scroll in before you sing them. Nothing is recorded.</p>
       <div class="row" id="clock-row"><button id="clock">Start clock</button><span class="hint">use without Spotify</span></div>

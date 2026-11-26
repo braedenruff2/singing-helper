@@ -2,6 +2,7 @@ import * as sp from './spotify.js';
 import { fetchSyncedLyrics, parseUltraStar } from './lyrics.js';
 import { encodePitch } from './karaoke.js';
 import { melodyPitch, resetMelody } from './melody.js';
+import { chartFromFrames, STEP_MS } from './notes.js';
 
 const $ = (id) => document.getElementById(id);
 const NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
@@ -238,6 +239,7 @@ async function captureSong(stream) {
 }
 
 function stopCapture() {
+  if (state.rec) finishRec('stop');
   if (state.refTrack) state.refTrack.stop();
   if (state.refNode) state.refNode.disconnect();
   if (state.refSrc) state.refSrc.disconnect();
@@ -280,10 +282,58 @@ function onRefPitch(midi) {
     // the tab capture hears the song before you do (speaker delay, and the look-ahead), so undo that here
     const early = (state.track ? state.outDelay : 0) + lookAheadMs();
     ref.hist.push({ raw: song - state.offset + early - REF_DELAY_MS, midi: ref.pitch.midi });
+    recFrame(song - state.offset + early - REF_DELAY_MS, ref.pitch.midi);
     while (ref.hist.length && ref.hist[ref.hist.length - 1].raw - ref.hist[0].raw > 30000) ref.hist.shift();
     if (ref.hist.length > 1600) ref.hist.splice(0, ref.hist.length - 1500); // looping a line never spans 30 s
   }
 }
+
+// ---------------------------------------------------------------- make notes from this song
+// While the song plays, every song-pitch frame is kept by its Spotify position (20 ms buckets; a later pass over
+// the same moment replaces it, so skipping back is fine). When the song ends or changes, or he presses Finish, the
+// frames become notes (notes.js) with the synced lyrics, saved as that song's chart. Only numbers, never audio.
+function recFrame(raw, midi) {
+  const r = state.rec;
+  if (!r || !state.track || state.exerciseMode || state.track.id !== r.track.id || songPaused() || raw < 0) return;
+  r.frames.set(Math.round(raw / STEP_MS), midi);
+  if (!r.lyrics && state.lyrics && state.shownId === r.track.id) r.lyrics = state.lyrics;
+}
+function recProgress() {
+  const r = state.rec; if (!r) return;
+  const heard = r.frames.size ? new Set([...r.frames.keys()].map((k) => Math.floor(k * STEP_MS / 5000))).size * 5000 : 0; // 5 s blocks heard
+  const dur = r.track.durationMs || 0, mmss = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
+  $('rec-status').textContent = `Writing down “${r.track.name}”: ${mmss(Math.min(heard, dur || heard))}${dur ? ' of ' + mmss(dur) : ''} heard. Let it play to the end, or press Finish.`;
+}
+async function startRec() {
+  if (!state.track || state.exerciseMode) { $('rec-status').textContent = 'Play the song on Spotify first (connect Spotify above), then press this.'; return; }
+  if (!state.refTrack) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) { $('rec-status').textContent = 'This needs Chrome or Edge on a computer (sharing a tab’s audio).'; return; }
+    try { await captureSong(); } catch (e) { $('rec-status').textContent = e.name === 'NotAllowedError' ? 'Not started: pick the Spotify tab and tick “Share tab audio”.' : e.message; return; }
+  }
+  state.rec = { track: Object.assign({}, state.track), frames: new Map(), lyrics: state.shownId === state.track.id ? state.lyrics : null };
+  $('rec-notes').textContent = 'Finish notes';
+  recProgress();
+  state.recTimer = setInterval(recProgress, 1000);
+}
+// why: 'button' (he pressed Finish), 'end' (the song changed or ended), 'stop' (tab sharing stopped)
+function finishRec(why) {
+  const r = state.rec; if (!r) return;
+  state.rec = null; clearInterval(state.recTimer);
+  $('rec-notes').textContent = 'Make notes from this song';
+  const frames = [...r.frames].map(([k, m]) => [k * STEP_MS, m]);
+  const res = chartFromFrames(frames, { lines: r.lyrics, artist: r.track.firstArtist || r.track.artist, title: r.track.name });
+  if (!res.text) {
+    $('rec-status').textContent = `Too little singing heard in “${r.track.name}” to make notes (${res.notes} notes)` + (why === 'stop' ? ': the tab sharing stopped.' : '. Let more of the song play next time.');
+    return;
+  }
+  const playing = state.track && state.track.id === r.track.id;
+  useChart(res.text, 'notes from the song', playing ? undefined : r.track);
+  // the notes sit at the song's own times: an offset saved for an older chart or the lyrics would shift them
+  if (playing) setOffset(0); else try { localStorage.removeItem('offset_' + r.track.id); } catch (_) { /* ignore */ }
+  $('rec-status').textContent = `Made ${res.notes} notes for “${r.track.name}”` + (res.lyrics ? ' with the lyrics' : ' (no synced lyrics found, so notes only)') +
+    (playing ? '. They show from now on; use Auto-sync or the offset slider if they sit a little early or late.' : '. They load when it plays again.');
+}
+$('rec-notes').onclick = () => (state.rec ? finishRec('button') : startRec());
 
 // Find the offset that best lines the chart up with what the singer is actually singing.
 function autoSync() {
@@ -1017,6 +1067,7 @@ function showNowPlaying(np) {
 }
 
 async function onTrackChange(np) {
+  if (state.rec && state.rec.track.id !== np.id) finishRec('end'); // the song ended or he skipped: write its notes
   state.shownId = np.id;
   showNowPlaying(np);
   // during an exercise leave everything alone; leaving it loads this song's chart, key, offset and lyrics
@@ -1386,7 +1437,7 @@ function drawUpdates() {
 if (NATIVE) {
   document.documentElement.classList.add('in-app');
   for (const id of ['capture', 'sync']) { const el = $(id); if (el) el.closest('.row').hidden = true; }
-  for (const id of ['ahead', 'sync-status']) { const el = $(id); if (el) (el.closest('label') || el).hidden = true; }
+  for (const id of ['ahead', 'sync-status', 'rec-status']) { const el = $(id); if (el) (el.closest('label') || el).hidden = true; }
   const hint = $('ahead') && $('ahead').closest('label') && $('ahead').closest('label').nextElementSibling; if (hint) hint.hidden = true;
   // Spotify's Google / Apple / Facebook buttons leave the app and can't come back: say so where he logs in
   const spHint = document.createElement('p'); spHint.className = 'hint'; spHint.id = 'sp-app-hint';

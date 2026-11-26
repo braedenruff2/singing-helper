@@ -13,7 +13,7 @@ CODE=${SH_CODE:-$(( 10000000 + ($(date -u +%s) - 1767225600) / 60 ))}  # minutes
 NAME=${SH_NAME:-0.1.$(date -u +%Y%m%d.%H%M)}
 KS=${SH_KEYSTORE:-$ROOT/android/singing.keystore}  # SH_KEYSTORE: the key kept outside this folder (cloud builds)
 PASS=singinghelper   # a personal sideload key, not a secret
-WEB="index.html app.js lyrics.js karaoke.js melody.js pitch-worklet.js spotify.js icon.svg manifest.webmanifest examples"
+WEB="index.html app.js lyrics.js karaoke.js melody.js notes.js pitch-worklet.js spotify.js icon.svg manifest.webmanifest examples"
 rm -rf "$OUT"; mkdir -p "$OUT"/{gen,classes,dex,stage/assets/www}
 echo "- resources ($NAME, code $CODE)"
 "$BT/aapt2" compile --dir android/res -o "$OUT/res.zip"

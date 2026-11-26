@@ -18,6 +18,7 @@ function step(name, file, retry) {
   results.push({ name, ok: r.status === 0, tries });
 }
 step('unit', 'unit.mjs', false);
+step('notes', 'notes.mjs', false); // "Make notes from this song"
 step('karaoke', 'karaoke.mjs', false); // the TV karaoke screen's logic (UltraStar read/write, scoring, phone messages)
 step('bench', 'bench.cjs', false);
 step('java', 'java.cjs', false); // the phone app's plain-Java helpers

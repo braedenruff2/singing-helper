@@ -17,6 +17,7 @@ test('app-mode', async ({ url, newPage, check, sleep }) => {
   });
   await p.goto(url);
   check('Live song pitch hidden (phones can\'t share app audio)', await p.isHidden('#capture') && await p.isHidden('#ahead') && await p.isHidden('#sync'));
+  check('… and so is Make notes from this song', await p.isHidden('#rec-notes') && await p.isHidden('#rec-status'));
   check('exercises and charts still there', await p.isVisible('#exercise') && await p.isVisible('#usfile'));
   check('app updates in the side panel', /Version 0\.1\.1/.test(await p.textContent('#updates')) && /Allow updates/.test(await p.textContent('#updates')));
   await p.click('#upd-allow');
