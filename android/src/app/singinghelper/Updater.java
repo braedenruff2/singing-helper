@@ -177,12 +177,10 @@ final class Updater {
                 Intent confirm = i.getParcelableExtra(Intent.EXTRA_INTENT);
                 if (confirm != null) {
                     confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    // he tapped "Update now" with the app on screen: show Android's prompt now
-                    if (MainActivity.visible) {
-                        try { c.startActivity(confirm); prefs(c).edit().putString("error", "").apply(); return; } catch (Throwable ignored) { }
-                    }
-                    // the app is in the background (it installs when he has been away a while), so Android blocks
-                    // opening the prompt from here: put it in a notification he can tap instead
+                    // The notification always goes up (Android can block the prompt without any error, e.g. when he
+                    // leaves just after tapping "Update now"); with the app on screen the prompt opens straight away
+                    // too, and coming back to the app clears the notification (MainActivity.onResume).
+                    if (MainActivity.visible) try { c.startActivity(confirm); } catch (Throwable ignored) { }
                     try {
                         NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
                         if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(new NotificationChannel("updates", "App updates", NotificationManager.IMPORTANCE_LOW));
@@ -201,6 +199,34 @@ final class Updater {
                     if (code > 0) { apk(c, code).delete(); prefs(c).edit().putInt("failed:" + code, prefs(c).getInt("failed:" + code, 0) + 1).apply(); }
                 }
             }
+        }
+    }
+
+    /** The "update ready: tap to install" notice (id 8), when he is back in the app. */
+    static void cancelReadyNotice(Context c) {
+        try { ((NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE)).cancel(8); } catch (Throwable ignored) { }
+    }
+
+    /** Installs a downloaded update once he has been out of the app for a while: an alarm (the app's own timers stop
+     *  once Android caches it), re-checking everything when it goes off. */
+    public static final class InstallLater extends BroadcastReceiver {
+        private static PendingIntent pi(Context c) {
+            return PendingIntent.getBroadcast(c, 11, new Intent(c, InstallLater.class), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        }
+        static void schedule(Context c, long afterMs) {
+            try {
+                android.app.AlarmManager am = (android.app.AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
+                am.set(android.app.AlarmManager.ELAPSED_REALTIME, android.os.SystemClock.elapsedRealtime() + afterMs, pi(c));
+            } catch (Throwable ignored) { }
+        }
+        static void cancel(Context c) {
+            try { ((android.app.AlarmManager) c.getSystemService(Context.ALARM_SERVICE)).cancel(pi(c)); } catch (Throwable ignored) { }
+        }
+        @Override public void onReceive(Context c, Intent i) {
+            if (MainActivity.visible || readyCode(c) <= 0 || !mayInstall(c)) return;
+            final Context app = c.getApplicationContext();
+            final PendingResult r = goAsync();
+            new Thread(() -> { try { install(app); } finally { r.finish(); } }, "sh-update-install").start();
         }
     }
 

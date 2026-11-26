@@ -964,14 +964,18 @@ async function onTrackChange(np) {
   state.pendingChart = null;
   showParts();
   setKey(Math.max(-12, Math.min(12, Math.round(num(localStorage.getItem('key_' + np.id))))));
-  $('us-status').textContent = state.chart ? `Chart loaded for this song (${state.chart.notes.length} notes).` : 'No chart for this song yet. Looking up synced lyrics…';
+  const looking = state.chart ? `Chart loaded for this song (${state.chart.notes.length} notes).` : 'No chart for this song yet. Looking up synced lyrics…';
+  $('us-status').textContent = looking;
+  // the lookup's answer replaces only its own "Looking up…" line, never a newer message (e.g. "Made … for <the
+  // previous song>" from a chart that finished meanwhile)
+  const stillOurs = () => $('us-status').textContent === looking;
   try {
     const lyrics = await fetchSyncedLyrics(np);
     if (state.shownId !== np.id) return; // the song changed while we waited: these lyrics are for the old one
     state.lyrics = lyrics;
-    if (!state.chart) $('us-status').textContent = state.lyrics ? 'Synced lyrics found (LRCLIB). Load an UltraStar chart to see the notes ahead.' : 'No synced lyrics found for this song.';
+    if (!state.chart && stillOurs()) $('us-status').textContent = state.lyrics ? 'Synced lyrics found (LRCLIB). Load an UltraStar chart to see the notes ahead.' : 'No synced lyrics found for this song.';
   } catch (_) {
-    if (state.shownId === np.id && !state.chart) $('us-status').textContent = 'Lyrics lookup failed.';
+    if (state.shownId === np.id && !state.chart && stillOurs()) $('us-status').textContent = 'Lyrics lookup failed.';
   }
 }
 
@@ -1234,9 +1238,13 @@ function updHtml() {
   if (u.error) h += '<p class="hint">Last check: ' + esc(u.error) + '</p>';
   return h + '<div class="row"><button id="upd-check"' + (u.busy ? ' disabled' : '') + '>Check now</button></div>';
 }
+let updRetry = 0;
 function drawUpdates() {
   const box = $('updates'); if (!box) return;
   box.innerHTML = updHtml();
+  // right after the Spotify login comes back, Android may not know yet that this is our page: ask again shortly
+  if (!box.innerHTML && updRetry < 5) { updRetry++; setTimeout(drawUpdates, 400); return; }
+  updRetry = 0;
   const c = $('upd-check'); if (c) c.onclick = () => { NATIVE.updateCheck(); c.disabled = true; c.textContent = 'Checking…'; };
   const a = $('upd-allow'); if (a) a.onclick = () => NATIVE.updateAllow();
   const i = $('upd-install'); if (i) i.onclick = () => { i.disabled = true; NATIVE.updateInstall(); };

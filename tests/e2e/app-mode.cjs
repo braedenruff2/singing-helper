@@ -44,6 +44,15 @@ test('app-mode', async ({ url, newPage, check, sleep }) => {
   await p.waitForFunction(() => window.__state.node);
   check('Start mic works again when back', true);
   check('Spotify login hint in the app', /email and password/.test(await p.textContent('#sp-setup')));
+  // just back from the Spotify login, Android may still answer "" for a moment: the panel asks again
+  const u = await newPage({ viewport: { width: 412, height: 915 } });
+  await u.addInitScript(() => {
+    let n = 0;
+    window.SHAndroid = { isApp: () => true, updateStatus: () => (++n <= 2 ? '' : JSON.stringify({ version: '0.1.9', code: 9, ready: false, allowed: true, busy: false, checked: 0, error: '' })), updateCheck() {}, updateAllow() {}, updateInstall() {} };
+  });
+  await u.goto(url);
+  await u.waitForFunction(() => /Version 0\.1\.9/.test((document.getElementById('updates') || {}).textContent || ''), null, { timeout: 5000 });
+  check('an empty first answer: the update panel fills in shortly after', true);
   // the mic refused for good: a button to the app's settings
   const r = await newPage({ viewport: { width: 412, height: 915 } });
   await r.addInitScript(() => {

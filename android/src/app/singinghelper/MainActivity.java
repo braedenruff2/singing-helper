@@ -39,13 +39,8 @@ public class MainActivity extends Activity {
     static volatile boolean visible;
     /** The host of the page now shown (the bridge only answers our own page, not the Spotify login). */
     private volatile String pageHost = Assets.HOST;
-    private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
-    private final Runnable installLater = () -> {
-        if (!visible && !MainActivity.this.ownScreenOnTop && MainActivity.this.fileCallback == null && Updater.readyCode(this) > 0 && Updater.mayInstall(this)) {
-            final Context app = getApplicationContext();
-            new Thread(() -> Updater.install(app), "sh-update-install").start();
-        }
-    };
+    /** "Allow updates" waits for the notification question to be answered before Settings opens over it. */
+    private boolean allowAfterNotify;
     private WebView web;
     private android.widget.FrameLayout root;
     private ValueCallback<Uri[]> fileCallback;
@@ -148,6 +143,12 @@ public class MainActivity extends Activity {
     }
 
     @Override public void onRequestPermissionsResult(int req, String[] perms, int[] res) {
+        if (req == NOTIFY) {
+            // answered (empty results = the dialog was cut short: ask again another time)
+            if (res.length > 0) getSharedPreferences("asked", MODE_PRIVATE).edit().putBoolean("notify", true).apply();
+            if (allowAfterNotify) { allowAfterNotify = false; openUnknownSources(); }
+            return;
+        }
         if (req != MIC || pendingMic == null) return;
         if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) pendingMic.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
         else pendingMic.deny();
@@ -165,13 +166,14 @@ public class MainActivity extends Activity {
 
     @Override protected void onStart() {
         super.onStart();
-        handler.removeCallbacks(installLater); // back within the wait: no restart
+        Updater.InstallLater.cancel(this); // back within the wait: no restart
     }
 
     @Override protected void onResume() {
         super.onResume();
         visible = true;
         ownScreenOnTop = false;
+        Updater.cancelReadyNotice(this); // he's in the app: "Update now" is right here
         if (web != null) web.onResume();
         Updater.check(getApplicationContext(), false, updateListener);
     }
@@ -185,11 +187,11 @@ public class MainActivity extends Activity {
 
     @Override protected void onStop() {
         super.onStop();
-        // install a downloaded update once he has been away from the app for a while (it restarts the app); not while
-        // the app has its own screen on top (the chart file picker, a link): the restart would lose it
-        handler.removeCallbacks(installLater);
-        if (!isChangingConfigurations() && !ownScreenOnTop && fileCallback == null && Updater.readyCode(this) > 0 && Updater.mayInstall(this))
-            handler.postDelayed(installLater, INSTALL_AFTER_MS);
+        // install a downloaded update once he has been away from the app for a while (it restarts the app): an alarm,
+        // because a cached app's own timers stop (and uptime stops while the phone sleeps). Not while the app has its
+        // own screen on top (the chart file picker, a link): the restart would lose it. Scheduled even if the update
+        // is still downloading; the alarm checks again when it goes off.
+        if (!isChangingConfigurations() && !ownScreenOnTop && fileCallback == null) Updater.InstallLater.schedule(this, INSTALL_AFTER_MS);
     }
 
     @Override protected void onSaveInstanceState(Bundle out) { super.onSaveInstanceState(out); if (web != null) web.saveState(out); }
@@ -200,18 +202,22 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
-        handler.removeCallbacks(installLater);
         if (web != null) { root.removeView(web); web.destroy(); web = null; }
         super.onDestroy();
     }
 
     /** Asks once for notifications (Android 13+), so "Tap to install" and "updated" notices can show. */
+    private boolean needNotifications() {
+        return Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            && !getSharedPreferences("asked", MODE_PRIVATE).getBoolean("notify", false);
+    }
+    /** Asks once for notifications (Android 13+); the answer is recorded in onRequestPermissionsResult. */
     private void askNotifications() {
-        if (Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return;
-        android.content.SharedPreferences p = getSharedPreferences("asked", MODE_PRIVATE);
-        if (p.getBoolean("notify", false)) return;
-        p.edit().putBoolean("notify", true).apply();
-        runOnUiThread(() -> requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFY));
+        if (needNotifications()) runOnUiThread(() -> requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFY));
+    }
+    private void openUnknownSources() {
+        try { ownScreenOnTop = true; startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))); }
+        catch (Exception e) { ownScreenOnTop = false; }
     }
 
     /** window.SHAndroid in the page (called on a background thread). */
@@ -221,10 +227,10 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void updateCheck() { if (!Assets.ownPage(pageHost)) return; askNotifications(); Updater.check(getApplicationContext(), true, updateListener); }
         @JavascriptInterface public void updateAllow() {
             if (!Assets.ownPage(pageHost)) return;
-            askNotifications();
             runOnUiThread(() -> {
-                try { ownScreenOnTop = true; startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))); }
-                catch (Exception e) { ownScreenOnTop = false; }
+                // first the notification question (for "Tap to install"), then Settings, never both at once
+                if (needNotifications()) { allowAfterNotify = true; requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFY); }
+                else openUnknownSources();
             });
         }
         /** The app's page in Android's Settings (to allow the mic after he refused it twice). */

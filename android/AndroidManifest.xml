@@ -26,6 +26,7 @@
             </intent-filter>
         </activity>
         <receiver android:name=".Updater$Result" android:exported="false" />
+        <receiver android:name=".Updater$InstallLater" android:exported="false" />
         <receiver android:name=".Updater$Replaced" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
