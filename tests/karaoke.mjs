@@ -1,0 +1,112 @@
+// Unit tests for karaoke.js (the TV karaoke screen's logic): UltraStar files saved unchanged, charts written as
+// UltraStar, scoring, the lyric line on screen, and the phone -> TV pitch messages. Node only.
+//   node tests/karaoke.mjs
+import { readFileSync, readdirSync } from 'fs';
+import {
+  readUltraStar, writeUltraStar, headValue, setHead, chartToUltraStar, parseUltraStar,
+  Scorer, LEVELS, foldTo, hzToMidi, rating, lyricView, encodePitch, decodeMessage, newer, PORT,
+} from '../karaoke.js';
+
+let fails = 0;
+const check = (label, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${label}${detail !== undefined ? '  (' + detail + ')' : ''}`); if (!ok) fails++; };
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const ex = new URL('../examples/', import.meta.url);
+
+// ---- read / write
+for (const f of readdirSync(ex).filter((f) => f.endsWith('.txt'))) {
+  const text = readFileSync(new URL(f, ex), 'utf8');
+  const raw = readUltraStar(text);
+  const again = writeUltraStar(raw);
+  check('write(read(x)) reads back the same: ' + f, same(readUltraStar(again), raw));
+  check('write(read(x)) sings the same: ' + f, same(parseUltraStar(again), parseUltraStar(text)));
+}
+{
+  const duet = '﻿#TITLE:Duet\r\n#ARTIST:Two\r\n#BPM:300\r\n#GAP:500\r\n#RELATIVE:yes\r\n#DUETSINGERP1:Ann\r\nP1\r\n: 0 4 2 Hel\r\n: 4 4 4 lo \r\n- 10 12\r\n* 0 8 5 there\r\nP2\r\nG 0 4 -3 yo\r\nF 4 4 0 ...\r\nR 8 2 0 rap \r\n: 12 4 1\r\nE\r\nignored after E\r\n';
+  const raw = readUltraStar(duet);
+  check('duet: two parts with their numbers, no empty part before P1', raw.parts.length === 2 && raw.parts[0].p === 1 && raw.parts[1].p === 2, JSON.stringify(raw.parts.map((p) => p.p)));
+  check('relative break "- 10 12" keeps both numbers', same(raw.parts[0].events[2], { kind: '-', beat: 10, next: 12 }));
+  check('note text keeps its trailing space (a word break)', raw.parts[0].events[1].text === 'lo ');
+  check('a note with no text reads as empty text', raw.parts[1].events[3].text === '');
+  check('golden / rap / freestyle kinds kept', raw.parts[0].events[3].kind === '*' && raw.parts[1].events.map((e) => e.kind).join('') === 'GFR:');
+  check('headers kept in order, BOM dropped', raw.head.map(([k]) => k).join(',') === 'TITLE,ARTIST,BPM,GAP,RELATIVE,DUETSINGERP1');
+  const w = writeUltraStar(raw);
+  check('duet written with P1/P2 and E', /\nP1\n/.test(w) && /\nP2\n/.test(w) && w.endsWith('\nE\n'));
+  for (const part of [1, 2]) check('duet part ' + part + ' sings the same after saving', same(parseUltraStar(w, { part }), parseUltraStar(duet, { part })));
+  setHead(raw, 'gap', 750); setHead(raw, 'MP3', 'duet.mp3');
+  check('setHead changes a header in place and adds a new one at the end', headValue(raw, 'GAP') === '750' && raw.head[3][0] === 'GAP' && raw.head[raw.head.length - 1][0] === 'MP3');
+  check('the new #GAP is what the song uses', parseUltraStar(writeUltraStar(raw)).notes[0].t === 750);
+}
+{
+  let threw = false; try { readUltraStar('just some text\n: 0 1 2 a'); } catch (_) { threw = true; }
+  check('a file without #BPM is refused', threw);
+}
+// ---- chart -> UltraStar
+{
+  const src = parseUltraStar(readFileSync(new URL('warmup-scale.txt', ex), 'utf8'));
+  const txt = chartToUltraStar(src, { mp3: 'scale.mp3' });
+  const back = parseUltraStar(txt);
+  check('a timed chart saved as UltraStar keeps every note within 10 ms', back.notes.length === src.notes.length &&
+    back.notes.every((n, i) => Math.abs(n.t - src.notes[i].t) <= 10 && Math.abs(n.dur - src.notes[i].dur) <= 10 && n.midi === src.notes[i].midi && n.text === src.notes[i].text));
+  check('... and its lyric lines', back.lines.length === src.lines.length && back.lines.every((l, i) => l.text === src.lines[i].text), back.lines.length + ' vs ' + src.lines.length);
+  check('... with #MP3, #BPM:1500 and #GAP at the first note', /#MP3:scale\.mp3/.test(txt) && /#BPM:1500/.test(txt) && headValue(readUltraStar(txt), 'GAP') === String(Math.round(src.notes[0].t)));
+  let threw = false; try { chartToUltraStar({ notes: [] }); } catch (_) { threw = true; }
+  check('an empty chart is refused', threw);
+}
+// ---- scoring
+{
+  check('foldTo moves a pitch into the target octave', foldTo(48, 60) === 60 && foldTo(73, 60) === 61 && foldTo(66, 60) === 54);
+  check('hzToMidi(440) = 69, 261.63 Hz ~ 60', hzToMidi(440) === 69 && Math.abs(hzToMidi(261.63) - 60) < 0.01);
+  const chart = { notes: [{ t: 1000, dur: 1000, midi: 60 }, { t: 2000, dur: 1000, midi: 64, golden: true }, { t: 3000, dur: 500, midi: 62, free: true }] };
+  const run = (sc, fn, from = 0, to = 4000, step = 20) => { for (let t = from; t <= to; t += step) sc.frame(t, fn(t)); return sc; };
+  const exact = run(new Scorer(chart), (t) => (t < 2000 ? 60 : t < 3000 ? 64 : 50));
+  check('singing every note right scores 10,000 (freestyle not scored)', exact.points >= 9950, exact.points);
+  const octave = run(new Scorer(chart), (t) => (t < 2000 ? 48 : 76));
+  check('an octave lower/higher counts (any voice fits)', octave.points >= 9950, octave.points);
+  const nofold = run(new Scorer(chart, { fold: false }), (t) => (t < 2000 ? 48 : 76));
+  check('... unless folding is off', nofold.points === 0, nofold.points);
+  const silent = run(new Scorer(chart), () => null);
+  check('silence scores nothing', silent.points === 0);
+  const half = run(new Scorer(chart), (t) => (t < 2000 ? 60 : null));
+  check('golden notes count double: first note only = 1/3', Math.abs(half.points - 3333) <= 30, half.points);
+  const rare = new Scorer(chart); rare.frame(1000, 60); rare.frame(1900, 60);
+  check('a long gap between frames credits at most 60 ms', rare.hit[0] === 60, rare.hit[0]);
+  const flat = run(new Scorer(chart, { tolerance: LEVELS.hard }), (t) => (t < 2000 ? 59.3 : null));
+  const flatEasy = run(new Scorer(chart, { tolerance: LEVELS.easy }), (t) => (t < 2000 ? 59.3 : null));
+  check('70 cents flat: wrong on Hard, right on Easy', flat.points === 0 && flatEasy.points > 3000, flat.points + ' / ' + flatEasy.points);
+  const back = run(new Scorer(chart), (t) => (t < 2000 ? 60 : null), 0, 2500);
+  run(back, (t) => (t < 2000 ? 60 : null), 1000, 1500);
+  check('a seek back (song started again) keeps counting from the right note, never over 100%', back.noteScore(0) <= 1 && back.noteAt(1200) === 0);
+  back.reset(); check('reset clears the score', back.points === 0);
+  check('ratings', rating(9500) === 'Superstar' && rating(0) === 'Warming up' && rating(6500) === 'Rising star');
+  check('a chart with only freestyle notes scores 0, no NaN', new Scorer({ notes: [{ t: 0, dur: 100, midi: 60, free: true }] }).points === 0);
+}
+// ---- lyric view
+{
+  const lines = parseUltraStar('#BPM:300\n#GAP:5000\n: 0 4 0 Hel\n: 4 4 0 lo \n- 10\n: 20 4 0 world\nE\n').lines;
+  const v0 = lyricView(lines, 1000);
+  check('before the first line: it shows, nothing wiped, countdown running', v0.cur === 0 && v0.words.every((w) => w.frac === 0) && v0.countdown === 1, JSON.stringify(v0));
+  const v1 = lyricView(lines, 5000 + 100); // #BPM:300 = 50 ms beats: "Hel" is 5000-5200
+  check('half-way through the first syllable: half wiped', v1.cur === 0 && Math.abs(v1.words[0].frac - 0.5) < 0.01 && v1.words[1].frac === 0 && v1.next === 1, JSON.stringify(v1.words));
+  const v2 = lyricView(lines, lines[1].t + 1);
+  check('then the next line', v2.cur === 1 && v2.next === -1 && v2.countdown === 0);
+  check('after the last line: nothing', lyricView(lines, 1e9).cur === -1);
+}
+// ---- messages
+{
+  const m = decodeMessage(encodePitch(7, 220.123, 0.917));
+  check('pitch message round trip (rounded)', same(m, { type: 'pitch', seq: 7, hz: 220.12, conf: 0.92 }), JSON.stringify(m));
+  const t = decodeMessage(encodePitch(8, 220, 0.9, 123456.7));
+  check('the phone\'s time goes along (whole ms)', t.ms === 123457 && !('ms' in decodeMessage(encodePitch(8, 220, 0.9))), JSON.stringify(t));
+  check('a bad phone time is refused', decodeMessage('{"v":1,"type":"pitch","seq":1,"hz":200,"conf":1,"ms":-5}') === null && decodeMessage('{"v":1,"type":"pitch","seq":1,"hz":200,"conf":1,"ms":"x"}') === null);
+  check('not singing = hz 0', decodeMessage(encodePitch(1, 0, 0)).hz === 0 && decodeMessage(encodePitch(1, -5, 0)).hz === 0);
+  check('hello', same(decodeMessage('{"v":1,"type":"hello","name":"Pixel"}'), { type: 'hello', name: 'Pixel' }));
+  const bad = ['', 'x', '{}', '{"v":2,"type":"pitch","seq":1,"hz":200,"conf":1}', '{"v":1,"type":"pitch","seq":1,"hz":"a","conf":1}',
+    '{"v":1,"type":"pitch","seq":-1,"hz":200,"conf":1}', '{"v":1,"type":"pitch","seq":1,"hz":20,"conf":1}', '{"v":1,"type":"pitch","seq":1,"hz":200,"conf":2}',
+    '{"v":1,"type":"pitch","seq":1.5,"hz":200,"conf":1}', '{"v":1,"type":"other"}', 'null', '"text"', 'a'.repeat(600), null];
+  check('bad or unknown messages are ignored', bad.every((b) => decodeMessage(b) === null));
+  check('newer: in order, duplicates and late ones dropped, wraps at 2^32', newer(5, 4) && !newer(4, 4) && !newer(3, 4) && newer(0, 0xffffffff) && newer(1, null));
+  check('port', PORT === 47321);
+}
+
+console.log(fails ? `${fails} karaoke unit test(s) FAILED` : 'karaoke unit tests passed');
+process.exitCode = fails ? 1 : 0;

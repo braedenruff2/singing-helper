@@ -18,6 +18,7 @@ function step(name, file, retry) {
   results.push({ name, ok: r.status === 0, tries });
 }
 step('unit', 'unit.mjs', false);
+step('karaoke', 'karaoke.mjs', false); // the TV karaoke screen's logic (UltraStar read/write, scoring, phone messages)
 step('bench', 'bench.cjs', false);
 step('java', 'java.cjs', false); // the phone app's plain-Java helpers
 step('real-voice', 'real-voice.cjs', false); // real singers (Vocadito, CC BY 4.0); skips unless VOCADITO points at the data

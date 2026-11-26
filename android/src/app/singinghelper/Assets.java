@@ -88,4 +88,15 @@ final class Assets {
     static boolean updateChecksOut(String pkg, String ours, long gotCode, long wantCode) { return ours != null && ours.equals(pkg) && gotCode == wantCode; }
     /** That version is already downloaded and waiting to install: no need to fetch it again. */
     static boolean alreadyHave(int readyCode, long code, boolean fileExists) { return readyCode > 0 && readyCode == code && fileExists; }
+
+    /** Karaoke on the TV: pitch only goes to a TV on the home network (a private IPv4 address typed or found), never
+     *  to the internet. */
+    static boolean lanIp(String ip) {
+        if (ip == null || !ip.matches("\\d{1,3}(\\.\\d{1,3}){3}")) return false;
+        String[] p = ip.split("\\.");
+        int a = Integer.parseInt(p[0]), b = Integer.parseInt(p[1]);
+        for (String x : p) if (Integer.parseInt(x) > 255) return false;
+        if (Integer.parseInt(p[3]) == 0 || Integer.parseInt(p[3]) == 255) return false;
+        return a == 10 || (a == 172 && b >= 16 && b <= 31) || (a == 192 && b == 168);
+    }
 }

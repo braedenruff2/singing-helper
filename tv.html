@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Singing Helper karaoke</title>
+<style>
+  /* The TV screen, read from the sofa: big type, high contrast, one thing focused at a time (the remote's D-pad). */
+  :root { --bg: #0b1020; --panel: #141b33; --ink: #f4f6ff; --dim: #a9b1d6; --accent: #7c8cff; --gold: #fbbf24; --good: #34d399; --focus: #ffffff; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 400 clamp(16px, 2.6vh, 40px)/1.35 system-ui, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  section { position: absolute; inset: 0; padding: 4vh 5vw; }
+  [hidden] { display: none !important; }
+  h1 { font-size: 2.2em; margin: 0 0 .2em; }
+  h2 { font-size: 1.8em; margin: 0 0 .4em; }
+  .meta { color: var(--dim); }
+  button { font: inherit; color: var(--ink); background: var(--panel); border: .12em solid transparent; border-radius: .6em; padding: .45em .9em; min-height: 2.4em; cursor: pointer; }
+  button:focus { outline: none; border-color: var(--focus); background: #24305e; box-shadow: 0 0 0 .2em rgba(124, 140, 255, .45); }
+  #lib-top { display: flex; align-items: baseline; gap: 1em; flex-wrap: wrap; }
+  #status { flex: 1; text-align: right; color: var(--dim); min-width: 12em; }
+  #status.on { color: var(--good); }
+  #controls { display: flex; gap: .6em; flex-wrap: wrap; margin: .6em 0 .8em; }
+  #songs { list-style: none; margin: 0; padding: 0; display: grid; gap: .45em; max-height: 62vh; overflow-y: auto; }
+  #songs button { width: 100%; text-align: left; display: flex; gap: 1em; align-items: baseline; }
+  #songs .t { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #songs .a, #songs .best { color: var(--dim); white-space: nowrap; }
+  #sing { padding: 3vh 4vw; display: flex; flex-direction: column; gap: 1.5vh; }
+  #sing-top { display: flex; align-items: baseline; gap: 1em; }
+  #now { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); }
+  #score { font-size: 1.8em; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #bars { flex: 1; width: 100%; min-height: 0; background: #0f1630; border-radius: .6em; }
+  #lyrics { text-align: center; min-height: 6.5em; }
+  .pitch-off #bars { display: none; }
+  .pitch-off #lyrics { flex: 1; display: flex; flex-direction: column; justify-content: center; font-size: 1.35em; }
+  #line { font-size: 2.1em; font-weight: 700; margin: 0; min-height: 1.3em; }
+  #line span { background: linear-gradient(90deg, var(--gold) var(--p, 0%), var(--ink) var(--p, 0%)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #next { font-size: 1.4em; color: var(--dim); margin: .25em 0 0; min-height: 1.3em; }
+  #dots { color: var(--gold); letter-spacing: .4em; min-height: 1.2em; }
+  #progress { height: .5vh; background: #1d2647; border-radius: 1em; overflow: hidden; }
+  #progress i { display: block; height: 100%; width: 0; background: var(--accent); }
+  #paused { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5, 8, 20, .7); font-size: 2.4em; font-weight: 700; }
+  #done { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: .6em; }
+  #final { font-size: 4em; font-weight: 800; margin: 0; font-variant-numeric: tabular-nums; }
+  #rating { font-size: 1.8em; color: var(--gold); margin: 0; }
+  #done .row { display: flex; gap: .8em; margin-top: .6em; }
+</style>
+</head>
+<body>
+<section id="library" aria-label="Songs">
+  <div id="lib-top"><h1>Karaoke</h1><div id="status" aria-live="polite"></div></div>
+  <div id="controls">
+    <button id="pitch" aria-pressed="true">Pitch bars: On</button>
+    <button id="level">Level: Normal</button>
+    <button id="lag">Mic delay: 120 ms</button>
+  </div>
+  <ol id="songs" aria-label="Songs"></ol>
+  <p class="meta" id="add"></p>
+  <p class="meta" id="help">Up/down to choose, OK to sing. During a song: OK pauses, Back stops.</p>
+</section>
+<section id="sing" hidden aria-label="Singing">
+  <div id="sing-top"><span id="now"></span><span id="score" aria-label="Score">0</span></div>
+  <canvas id="bars" aria-hidden="true"></canvas>
+  <div id="lyrics" aria-live="off"><div id="dots"></div><p id="line"></p><p id="next"></p></div>
+  <div id="progress"><i></i></div>
+  <audio id="audio" preload="auto"></audio>
+  <div id="paused" hidden>Paused: OK to carry on, Back to stop</div>
+</section>
+<section id="done" hidden aria-label="Score">
+  <h2 id="done-title"></h2>
+  <p id="final">0</p>
+  <p id="rating"></p>
+  <p class="meta" id="best"></p>
+  <div class="row"><button id="again">Sing again</button><button id="back">Back to songs</button></div>
+</section>
+<script type="module" src="tv.js"></script>
+</body>
+</html>

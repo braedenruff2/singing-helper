@@ -1,5 +1,6 @@
 import * as sp from './spotify.js';
 import { fetchSyncedLyrics, parseUltraStar } from './lyrics.js';
+import { encodePitch } from './karaoke.js';
 import { melodyPitch, resetMelody } from './melody.js';
 
 const $ = (id) => document.getElementById(id);
@@ -178,6 +179,7 @@ function stopMic(msg) {
 
 function onPitch(r) {
   const now = performance.now();
+  tvFeed(r.f || 0, r.conf || 0, now);
   // after a gap, the next note starts fresh: don't ease it toward the last note sung
   if (!r.f) { state.pitch = null; state.smoothMidi = 0; return; }
   let midi = 69 + 12 * Math.log2(r.f / 440);
@@ -1301,6 +1303,58 @@ try {
 } catch (_) { /* ignore */ }
 for (const id of PREF_IDS) $(id).addEventListener('change', savePrefs);
 // ---------------------------------------------------------------- phone app (android/: the same page in a WebView)
+// ---------------------------------------------------------------- karaoke on the TV (phone app only)
+// The TV app (tv.html in the Fire TV app) plays the song and shows lyrics and pitch bars; the phone, with the mic
+// receiver plugged in, sends the singer's pitch to it over Wi-Fi (UDP, via the app). About 50 pitches a second while
+// singing, a "not singing" every 100 ms otherwise. One singer only: the receiver mixes every mic into one signal.
+// seq starts from the clock (20 ms steps), so after the app restarts the TV still sees newer numbers
+const tvLink = { on: false, ip: localStorage.getItem('tv_ip') || '', seq: Math.floor(Date.now() / 20) % 0x7fffffff, last: -1e9, sent: 0, failed: 0 };
+function tvFeed(hz, conf, now) {
+  if (!tvLink.on || !tvLink.ip || !NATIVE || !NATIVE.tvSend) return;
+  if (now - tvLink.last < (hz > 0 ? 20 : 100)) return;
+  tvLink.last = now;
+  if (NATIVE.tvSend(tvLink.ip, encodePitch(++tvLink.seq, hz, conf, now))) tvLink.sent++; else tvLink.failed++;
+}
+function tvPanel() {
+  const box = document.createElement('div'); box.id = 'tv-panel';
+  box.innerHTML = '<h2>Karaoke on TV</h2>' +
+    '<p class="hint">Open Singing Helper TV on the TV, plug the mic receiver into the phone, then send your pitch to the TV for its pitch bars.</p>' +
+    '<div class="row"><input id="tv-ip" inputmode="decimal" placeholder="TV address, e.g. 192.168.1.50" aria-label="TV address" autocomplete="off"><button id="tv-find">Find TV</button></div>' +
+    '<label><input id="tv-on" type="checkbox"> Send my pitch to the TV</label>' +
+    '<p class="hint" id="tv-status"></p>' +
+    '<p class="hint">One singer at a time: the mic receiver mixes every mic together, so for duets or group songs untick this and turn Pitch bars off on the TV.</p>';
+  document.querySelector('aside').append(box);
+  const ip = $('tv-ip'), on = $('tv-on'), st = $('tv-status');
+  ip.value = tvLink.ip;
+  const ok = (v) => /^(10\.\d{1,3}|172\.(1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}$/.test(v);
+  const show = () => {
+    if (!tvLink.on) st.textContent = tvLink.ip ? 'Not sending.' : 'Type the address the TV shows, or Find TV.';
+    else if (!state.node) st.textContent = 'Start mic to send your pitch.';
+    else st.textContent = 'Sending to ' + tvLink.ip + (tvLink.failed > tvLink.sent ? ': the TV isn’t taking it (same Wi-Fi? Singing Helper TV open?)' : '.');
+  };
+  ip.onchange = () => {
+    const v = ip.value.trim();
+    if (v && !ok(v)) { st.textContent = 'That isn’t a home-network address (like 192.168.1.50).'; return; }
+    tvLink.ip = v; try { localStorage.setItem('tv_ip', v); } catch (_) { /* fine */ }
+    show();
+  };
+  on.onchange = () => {
+    if (on.checked && !ok(tvLink.ip)) { on.checked = false; st.textContent = 'Type the TV’s address first, or Find TV.'; return; }
+    tvLink.on = on.checked; tvLink.sent = tvLink.failed = 0;
+    if (tvLink.on && !state.node) startMic().catch(() => {}).finally(show);
+    show();
+  };
+  $('tv-find').onclick = () => { $('tv-find').disabled = true; st.textContent = 'Looking for the TV…'; NATIVE.tvFind(); };
+  window.SHTVFound = (list) => {
+    $('tv-find').disabled = false;
+    if (!Array.isArray(list) || !list.length) { st.textContent = 'No TV answered. Is Singing Helper TV open, on the same Wi-Fi? You can type its address.'; return; }
+    tvLink.ip = list[0].ip; ip.value = tvLink.ip; try { localStorage.setItem('tv_ip', tvLink.ip); } catch (_) { /* fine */ }
+    st.textContent = 'Found ' + list[0].name + ' (' + list[0].ip + ').' + (list.length > 1 ? ' ' + (list.length - 1) + ' more answered; type another address to use it.' : '');
+  };
+  setInterval(() => { if (tvLink.on) show(); }, 2000);
+  show();
+}
+
 // window.SHAndroid is there only inside the phone app. There: no offline service worker (the files are inside the app),
 // no tab-audio features (phones can't share another app's audio), app updates in the side panel, and the mic is
 // let go when the app is in the background.
@@ -1348,6 +1402,7 @@ if (NATIVE) {
     const c = state.ctx;
     if (c && c.state !== 'closed') (document.hidden ? c.suspend() : c.resume()).catch(() => {});
   });
+  if (NATIVE.tvSend) tvPanel();
 } else if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 $('ruri').textContent = location.origin + location.pathname;
 $('cid').value = sp.getClientId();

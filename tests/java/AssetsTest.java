@@ -23,6 +23,9 @@ public class AssetsTest {
             && !Assets.updateChecksOut("app.singinghelper", "app.singinghelper", 30470000L, 30474022L) && !Assets.updateChecksOut("other.app", "app.singinghelper", 5, 5)
             && !Assets.updateChecksOut(null, "app.singinghelper", 5, 5));
         check("a waiting update isn't fetched again", Assets.alreadyHave(7, 7L, true) && !Assets.alreadyHave(7, 7L, false) && !Assets.alreadyHave(6, 7L, true) && !Assets.alreadyHave(0, 0L, true));
+        check("TV pitch only to home-network addresses", Assets.lanIp("192.168.1.50") && Assets.lanIp("10.0.0.7") && Assets.lanIp("172.20.3.4")
+            && !Assets.lanIp("8.8.8.8") && !Assets.lanIp("172.32.0.1") && !Assets.lanIp("192.168.1.255") && !Assets.lanIp("192.168.1.0") && !Assets.lanIp("192.168.1.300")
+            && !Assets.lanIp("192.168.1") && !Assets.lanIp("tv.local") && !Assets.lanIp(null) && !Assets.lanIp("192.168.1.5 ") && !Assets.lanIp("127.0.0.1"));
         String[] two = {"android.permission.RECORD_AUDIO", "android.permission.BLUETOOTH_CONNECT"};
         check("each permission's own answer (mic + Nearby devices asked together)", Assets.answered(two, new int[]{0, -1}, "android.permission.RECORD_AUDIO") == 1
             && Assets.answered(two, new int[]{0, -1}, "android.permission.BLUETOOTH_CONNECT") == -1

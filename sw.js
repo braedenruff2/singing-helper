@@ -1,6 +1,6 @@
 // Offline support: network first (so updates show up immediately), cached copy when offline.
-const CACHE = 'singing-helper-v3';
-const SHELL = ['./', 'index.html', 'app.js', 'spotify.js', 'lyrics.js', 'melody.js', 'pitch-worklet.js', 'manifest.webmanifest', 'icon.svg',
+const CACHE = 'singing-helper-v4';
+const SHELL = ['./', 'index.html', 'app.js', 'spotify.js', 'lyrics.js', 'karaoke.js', 'tv.html', 'tv.js', 'melody.js', 'pitch-worklet.js', 'manifest.webmanifest', 'icon.svg',
   'examples/warmup-scale.txt', 'examples/sustain.txt', 'examples/arpeggios.txt', 'examples/echo.txt', 'examples/echo-intervals.txt'];
 
 self.addEventListener('install', (e) => e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())));

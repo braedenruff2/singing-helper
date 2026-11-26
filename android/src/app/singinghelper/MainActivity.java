@@ -42,6 +42,8 @@ public class MainActivity extends Activity {
     /** "Allow updates" waits for the notification question to be answered before Settings opens over it. */
     private boolean allowAfterNotify;
     private WebView web;
+    static final int TV_PORT = 47321;
+    private volatile java.net.DatagramSocket tvSocket;
     private android.widget.FrameLayout root;
     private ValueCallback<Uri[]> fileCallback;
     private PermissionRequest pendingMic;
@@ -249,6 +251,46 @@ public class MainActivity extends Activity {
                 try { ownScreenOnTop = true; startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); }
                 catch (Exception e) { ownScreenOnTop = false; }
             });
+        }
+        /** Karaoke on the TV: one pitch message to the TV app (UDP 47321). Home network addresses only. */
+        @JavascriptInterface public boolean tvSend(String ip, String msg) {
+            if (!Assets.ownPage(pageHost) || !Assets.lanIp(ip) || msg == null || msg.length() > 512) return false;
+            try {
+                if (tvSocket == null) tvSocket = new java.net.DatagramSocket();
+                byte[] b = msg.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                tvSocket.send(new java.net.DatagramPacket(b, b.length, java.net.InetAddress.getByName(ip), TV_PORT));
+                return true;
+            } catch (Exception e) { return false; }
+        }
+        /** Asks the home network "any Singing Helper TV there?"; answers go to window.SHTVFound([{name, ip}]) after 1.5 s. */
+        @JavascriptInterface public void tvFind() {
+            if (!Assets.ownPage(pageHost)) return;
+            new Thread(() -> {
+                StringBuilder found = new StringBuilder("[");
+                java.util.Set<String> seen = new java.util.HashSet<>();
+                try (java.net.DatagramSocket s = new java.net.DatagramSocket()) {
+                    s.setBroadcast(true);
+                    s.setSoTimeout(300);
+                    byte[] hello = ("{\"v\":1,\"type\":\"hello\",\"name\":" + Assets.quote(Build.MODEL) + "}").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                    long end = System.currentTimeMillis() + 1500;
+                    for (int round = 0; round < 3 && System.currentTimeMillis() < end; round++) {
+                        s.send(new java.net.DatagramPacket(hello, hello.length, java.net.InetAddress.getByName("255.255.255.255"), TV_PORT));
+                        long until = Math.min(end, System.currentTimeMillis() + 500);
+                        while (System.currentTimeMillis() < until) {
+                            byte[] buf = new byte[600];
+                            java.net.DatagramPacket p = new java.net.DatagramPacket(buf, buf.length);
+                            try { s.receive(p); } catch (java.net.SocketTimeoutException t) { continue; }
+                            String ip = p.getAddress().getHostAddress();
+                            String txt = new String(p.getData(), 0, p.getLength(), java.nio.charset.StandardCharsets.UTF_8);
+                            if (!txt.contains("\"type\":\"tv\"") || !Assets.lanIp(ip) || !seen.add(ip)) continue;
+                            String name = Assets.str(txt, "name");
+                            found.append(found.length() > 1 ? "," : "").append("{\"ip\":").append(Assets.quote(ip)).append(",\"name\":").append(Assets.quote(name == null ? "TV" : name)).append('}');
+                        }
+                    }
+                } catch (Exception ignored) { }
+                final String js = "window.SHTVFound&&SHTVFound(" + found.append(']') + ")";
+                runOnUiThread(() -> { if (web != null) web.evaluateJavascript(js, null); });
+            }, "sh-tv-find").start();
         }
         @JavascriptInterface public void updateInstall() {
             if (!Assets.ownPage(pageHost)) return;

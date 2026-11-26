@@ -11,9 +11,9 @@ ROOT=$PWD
 OUT=$ROOT/build
 CODE=${SH_CODE:-$(( 10000000 + ($(date -u +%s) - 1767225600) / 60 ))}  # minutes since 2026-01-01, always increasing
 NAME=${SH_NAME:-0.1.$(date -u +%Y%m%d.%H%M)}
-KS=$ROOT/android/singing.keystore
+KS=${SH_KEYSTORE:-$ROOT/android/singing.keystore}  # SH_KEYSTORE: the key kept outside this folder (cloud builds)
 PASS=singinghelper   # a personal sideload key, not a secret
-WEB="index.html app.js lyrics.js melody.js pitch-worklet.js spotify.js icon.svg manifest.webmanifest examples"
+WEB="index.html app.js lyrics.js karaoke.js melody.js pitch-worklet.js spotify.js icon.svg manifest.webmanifest examples"
 rm -rf "$OUT"; mkdir -p "$OUT"/{gen,classes,dex,stage/assets/www}
 echo "- resources ($NAME, code $CODE)"
 "$BT/aapt2" compile --dir android/res -o "$OUT/res.zip"
@@ -32,6 +32,11 @@ cp "$OUT/dex/classes.dex" "$OUT/stage/"
 for f in $WEB; do cp -r "$f" "$OUT/stage/assets/www/"; done
 ( cd "$OUT/stage" && zip -q "$OUT/unsigned.apk" classes.dex && zip -q -r "$OUT/unsigned.apk" assets )
 "$BT/zipalign" -P 16 -f 4 "$OUT/unsigned.apk" "$OUT/aligned.apk" 2>/dev/null || "$BT/zipalign" -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
+if [ ! -e "$KS" ] && [ "${SH_NEW_KEY:-}" != 1 ]; then
+  echo "No signing key at $KS: put android/singing.keystore back (a new key can't update the installed app)." >&2
+  echo "Only for a first-ever build: SH_NEW_KEY=1 makes a new one." >&2
+  exit 1
+fi
 if [ ! -e "$KS" ]; then
   keytool -genkeypair -keystore "$KS" -storepass "$PASS" -keypass "$PASS" -alias sing -keyalg RSA -keysize 2048 \
     -validity 20000 -dname "CN=Singing Helper" >/dev/null

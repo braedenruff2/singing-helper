@@ -112,6 +112,44 @@ from the internet; a secure address so the microphone and the audio worklet work
 microphone to that page only. The signing key is `android/singing.keystore`: keep it, never put it in git (it's in
 .gitignore); updates only install over the app when signed with the same key.
 
+## Karaoke on the TV (Fire TV)
+
+Braeden's request (26 Nov 2026): karaoke on the living-room TCL TV (75Q550F-CA, Fire TV OS, so no Chromecast): the TV
+plays the song itself and shows scrolling lyrics, plus pitch bars when pitch mode is on; the WOW wireless mic
+receiver's 1/4" output goes through a USB-C recording cable into the Pixel, the phone works out the pitch and sends
+it to the TV. No screen mirroring (it adds about a second of delay).
+
+**Built 26 Nov (first version; tested in automated tests only, not yet on the TV or the phone):**
+
+- **The TV app** `dist/SingingHelperTV.apk` (sideload it on the Fire TV; built by `tools/build-tv-apk.sh` from
+  `android-tv/`, same signing key as the phone app). It shows `tv.html` full screen: the song list (songs you add,
+  plus three warm-ups), driven by the remote (up/down, OK to sing; during a song OK pauses, Back stops). While
+  singing: big lyrics with a gold wipe and countdown dots before a line after a long gap, a progress line, and with
+  **Pitch bars: On** the song's notes scrolling past (gold = golden notes, green once sung right) with your pitch as
+  dots (white on the note, red off it) and a karaoke-style score out of 10,000 (golden notes count double; any octave
+  counts; **Level** Easy/Normal/Hard = within 1.5 / 0.75 / 0.5 semitones). The best score per song is kept on the TV.
+  **Mic delay** (default 120 ms) lines your pitch up with the song: raise it if your pitch dots trail the bars.
+- **Adding songs**: the TV shows an address and a 4-digit code: on a PC on the same Wi-Fi, open
+  `http://<TV address>:47322/`, type the code, pick an UltraStar chart (`.txt`) and its audio file (the name in the
+  chart's `#MP3:` line), and send. They show up in the list straight away. Only songs he owns. The page only takes
+  charts, audio and pictures (200 MB at most each), into the TV app's own songs folder.
+- **The phone**: in the Singing Helper phone app, side panel **Karaoke on TV**: **Find TV** (or type the address the
+  TV shows), then tick **Send my pitch to the TV** (it starts the mic). It sends about 50 pitch readings a second over
+  Wi-Fi (UDP port 47321, only to home-network addresses) while you sing. Keep the app open on the phone while singing
+  (it lets go of the mic in the background).
+- **One singer only**: the receiver mixes every mic into one signal, so for duets or group songs untick sending on
+  the phone and turn Pitch bars off on the TV (lyrics only, no score). The app doesn't try to separate singers.
+- **Songs**: UltraStar `.txt` files are read and can be written back exactly (`karaoke.js`: `readUltraStar` /
+  `writeUltraStar`, and `chartToUltraStar` for a timed chart), so later a synced offset or a chart made from his own
+  audio can be saved for the TV.
+- **Without the TV app**: `tv.html` also opens in the TV's Silk browser from a web server (lyrics, songs from
+  `songs/index.json`), but pitch bars need the TV app (a browser can't receive the phone's pitch), unless a home
+  server relays it: `tv.html?ws=ws://<server>:<port>` takes the same messages over a WebSocket. Hosting the app, songs
+  and scores on the Acer home lab comes once that's set up.
+
+Not yet: trying it on the real TV and phone (Wi-Fi delay, whether the Fire TV's WebView plays every audio format
+and lets you seek), scores kept anywhere but the TV, the home-lab hosting.
+
 ## Test it
 
 - Detector accuracy/latency benchmark (Node only, no browser):
@@ -166,6 +204,9 @@ microphone to that page only. The signing key is `android/singing.keystore`: kee
 | `spotify.js` | Spotify PKCE login, now-playing, seek |
 | `lyrics.js` | LRCLIB synced lyrics, LRC and UltraStar parsing |
 | `melody.js` | Live song pitch: the lead melody's pitch from the shared tab's spectrum |
+| `tv.html`, `tv.js` | The TV karaoke screen (song list, lyrics, pitch bars, score) |
+| `karaoke.js` | UltraStar read/write, karaoke scoring, lyric line on screen, phone -> TV messages |
+| `android-tv/`, `tools/build-tv-apk.sh` | The Fire TV app (WebView, phone pitch on UDP 47321, song uploads on 47322) |
 | `sw.js`, `manifest.webmanifest`, `icon.svg` | Offline/installable app (network-first cache) |
 | `examples/` | Exercise charts: scale warm-up, arpeggios, sustain |
 | `tools/make_chart.py`, `tools/server.py`, `tools/requirements.txt` | Chart generator and local server with POST `/api/chart` (listens on 127.0.0.1 only) |
@@ -217,6 +258,11 @@ From how the project was built:
 
 ## Changes by the autopilot
 
+- **26 Nov 2026 (karaoke on the TV)**: first version of his TV karaoke request (see "Karaoke on the TV"): the TV page
+  and Fire TV app, the phone's "Karaoke on TV" sender, UltraStar read/write, karaoke scoring. Tests: `tests/karaoke.mjs`,
+  `tests/e2e/tv.cjs`, `tests/e2e/tv-phone.cjs`, Java `TvFilesTest` (+ `Assets.lanIp`). Also: `tools/build-apk.sh`
+  no longer makes a new signing key when `android/singing.keystore` is missing (a new key can't update the installed
+  app; `SH_NEW_KEY=1` only for a first-ever build), and takes the key from `SH_KEYSTORE=<path>`.
 - **18 Nov 2026**: tests now pass/fail on their own and run on Windows (`node tests/run-all.cjs`); new unit tests for
   lyrics/chart parsing and a Spotify edge-case test. Fixed: a moment of "nothing playing" from Spotify (or an expired
   login) no longer wipes the song's score and loop; lyrics from the previous song can't replace the current song's when
