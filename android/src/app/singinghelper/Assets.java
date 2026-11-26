@@ -76,4 +76,10 @@ final class Assets {
     static long code(String json) {
         try { long c = Long.parseLong(num(json, "code")); return c > 0 ? c : -1; } catch (NumberFormatException e) { return -1; }
     }
+    /** The bridge answers only our own page (appassets), never a page loaded in the app such as the Spotify login. */
+    static boolean ownPage(String host) { return host != null && HOST.equalsIgnoreCase(host); }
+    /** A downloaded update is this app and exactly the version version.json named (a stale cached APK is not). */
+    static boolean updateChecksOut(String pkg, String ours, long gotCode, long wantCode) { return ours != null && ours.equals(pkg) && gotCode == wantCode; }
+    /** That version is already downloaded and waiting to install: no need to fetch it again. */
+    static boolean alreadyHave(int readyCode, long code, boolean fileExists) { return readyCode > 0 && readyCode == code && fileExists; }
 }

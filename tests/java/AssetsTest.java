@@ -17,6 +17,12 @@ public class AssetsTest {
         check("version.json code", Assets.code("{\"code\": 10466128, \"name\": \"0.1.x\", \"size\": 5}") == 10466128 && Assets.code("{}") == -1 && Assets.code("{\"code\": 0}") == -1 && Assets.code(null) == -1);
         check("version.json name", "0.1.x".equals(Assets.str("{\"code\": 1, \"name\": \"0.1.x\"}", "name")) && Assets.str("{}", "name") == null);
         check("quote escapes for the page", Assets.quote("a\"b\\c\nd ").equals("\"a\\\"b\\\\c\\u000ad\\u2028\"") && Assets.quote(null).equals("null"));
+        check("the bridge answers only our own page", Assets.ownPage("appassets.androidplatform.net") && Assets.ownPage("APPASSETS.androidplatform.net")
+            && !Assets.ownPage("accounts.spotify.com") && !Assets.ownPage(null) && !Assets.ownPage("appassets.androidplatform.net.evil.example"));
+        check("an update must be exactly the version announced", Assets.updateChecksOut("app.singinghelper", "app.singinghelper", 30474022L, 30474022L)
+            && !Assets.updateChecksOut("app.singinghelper", "app.singinghelper", 30470000L, 30474022L) && !Assets.updateChecksOut("other.app", "app.singinghelper", 5, 5)
+            && !Assets.updateChecksOut(null, "app.singinghelper", 5, 5));
+        check("a waiting update isn't fetched again", Assets.alreadyHave(7, 7L, true) && !Assets.alreadyHave(7, 7L, false) && !Assets.alreadyHave(6, 7L, true) && !Assets.alreadyHave(0, 0L, true));
         System.out.println(fails == 0 ? "java: passed" : "java: " + fails + " FAILED");
         System.exit(fails == 0 ? 0 : 1);
     }

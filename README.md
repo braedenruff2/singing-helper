@@ -90,12 +90,16 @@ The same app, packaged for the phone: `dist/SingingHelper.apk` (built by `tools/
 **Set up once (PC):** double-click **Turn on app updates.bat**. It puts this folder in a public GitHub repository
 `singing-helper` you own (nothing personal goes there) and uploads changes every 15 minutes. At the end it shows a
 link: open it on the phone to install the app. After that the app **updates itself** like Wellness and Loudbook: it
-checks GitHub, downloads a newer version in the background and installs it when you leave the app (the first time it
-asks you to "Allow updates": Settings opens, switch it on). The side panel shows the version and has "Check now".
+checks GitHub, downloads a newer version in the background and installs it once you've been out of the app for 10
+minutes (so switching to Spotify or locking the screen doesn't restart it; the first time it asks you to "Allow
+updates": Settings opens, switch it on, and to allow notifications for "Tap to install"). The side panel shows the
+version and has "Check now"; "Update now" there shows Android's install prompt straight away.
 
 **Spotify on the phone:** in your Spotify developer app (developer.spotify.com > your app > Edit), add a second
 Redirect URI: `https://appassets.androidplatform.net/index.html` (the app shows it under Spotify). Keep the PC one.
 Then Connect Spotify in the app; it uses the Spotify app or web player that's playing on any of your devices.
+In the app, log in to Spotify with your email (or username) and password: the "Continue with Google / Apple /
+Facebook" buttons open the browser, and the login can't come back to the app from there.
 
 **What's different on the phone:** Live song pitch, "Show the song ahead" and Auto-sync are PC-only (phones don't let
 an app listen to another app's audio). Everything else is the same: pitch readout, charts, exercises (including Hear it,

@@ -31,7 +31,21 @@ import java.util.Map;
  * to Android through window.SHAndroid (app updates); Android calls back window.SHUpdateState().
  */
 public class MainActivity extends Activity {
-    private static final int PICK_FILE = 1, MIC = 2;
+    private static final int PICK_FILE = 1, MIC = 2, NOTIFY = 3;
+    /** An update waiting to install goes in only after he has been away this long (not when he just switches to
+     *  Spotify or locks the screen for a moment: the restart would lose a loaded chart). */
+    static final long INSTALL_AFTER_MS = 10 * 60_000L;
+    /** The app is on screen: Updater can show Android's install prompt straight away instead of a notification. */
+    static volatile boolean visible;
+    /** The host of the page now shown (the bridge only answers our own page, not the Spotify login). */
+    private volatile String pageHost = Assets.HOST;
+    private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable installLater = () -> {
+        if (!visible && !MainActivity.this.ownScreenOnTop && MainActivity.this.fileCallback == null && Updater.readyCode(this) > 0 && Updater.mayInstall(this)) {
+            final Context app = getApplicationContext();
+            new Thread(() -> Updater.install(app), "sh-update-install").start();
+        }
+    };
     private WebView web;
     private android.widget.FrameLayout root;
     private ValueCallback<Uri[]> fileCallback;
@@ -67,8 +81,12 @@ public class MainActivity extends Activity {
                 if (!Assets.HOST.equalsIgnoreCase(u.getHost())) return null; // the internet (Spotify, LRCLIB) as usual
                 return asset(u.getPath());
             }
+            @Override public void onPageStarted(WebView v, String url, android.graphics.Bitmap icon) {
+                try { pageHost = Uri.parse(url).getHost(); } catch (Exception e) { pageHost = null; }
+            }
             @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
                 Uri u = r.getUrl();
+                if (!r.isForMainFrame()) return false; // a frame inside a page (Spotify's login has some): load it in place
                 if ("https".equals(u.getScheme()) && Assets.staysInApp(u.getHost())) return false; // the app, Spotify login
                 try { ownScreenOnTop = true; startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception e) { ownScreenOnTop = false; }
                 return true;
@@ -145,8 +163,14 @@ public class MainActivity extends Activity {
         }
     }
 
+    @Override protected void onStart() {
+        super.onStart();
+        handler.removeCallbacks(installLater); // back within the wait: no restart
+    }
+
     @Override protected void onResume() {
         super.onResume();
+        visible = true;
         ownScreenOnTop = false;
         if (web != null) web.onResume();
         Updater.check(getApplicationContext(), false, updateListener);
@@ -154,18 +178,18 @@ public class MainActivity extends Activity {
 
     @Override protected void onPause() {
         // the page stops the mic itself when hidden; WebView timers pause too
+        visible = false;
         if (web != null) web.onPause();
         super.onPause();
     }
 
     @Override protected void onStop() {
         super.onStop();
-        // install a downloaded update while he's away from the app (it restarts the app); not while the app has its
-        // own screen on top (the chart file picker, a link): the restart would lose it
-        if (!isChangingConfigurations() && !ownScreenOnTop && fileCallback == null && Updater.readyCode(this) > 0 && Updater.mayInstall(this)) {
-            final Context app = getApplicationContext();
-            new Thread(() -> Updater.install(app), "sh-update-install").start();
-        }
+        // install a downloaded update once he has been away from the app for a while (it restarts the app); not while
+        // the app has its own screen on top (the chart file picker, a link): the restart would lose it
+        handler.removeCallbacks(installLater);
+        if (!isChangingConfigurations() && !ownScreenOnTop && fileCallback == null && Updater.readyCode(this) > 0 && Updater.mayInstall(this))
+            handler.postDelayed(installLater, INSTALL_AFTER_MS);
     }
 
     @Override protected void onSaveInstanceState(Bundle out) { super.onSaveInstanceState(out); if (web != null) web.saveState(out); }
@@ -176,22 +200,43 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        handler.removeCallbacks(installLater);
         if (web != null) { root.removeView(web); web.destroy(); web = null; }
         super.onDestroy();
     }
 
+    /** Asks once for notifications (Android 13+), so "Tap to install" and "updated" notices can show. */
+    private void askNotifications() {
+        if (Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return;
+        android.content.SharedPreferences p = getSharedPreferences("asked", MODE_PRIVATE);
+        if (p.getBoolean("notify", false)) return;
+        p.edit().putBoolean("notify", true).apply();
+        runOnUiThread(() -> requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFY));
+    }
+
     /** window.SHAndroid in the page (called on a background thread). */
     class Bridge {
-        @JavascriptInterface public boolean isApp() { return true; }
-        @JavascriptInterface public String updateStatus() { return Updater.status(getApplicationContext()); }
-        @JavascriptInterface public void updateCheck() { Updater.check(getApplicationContext(), true, updateListener); }
+        @JavascriptInterface public boolean isApp() { return Assets.ownPage(pageHost); }
+        @JavascriptInterface public String updateStatus() { return Assets.ownPage(pageHost) ? Updater.status(getApplicationContext()) : ""; }
+        @JavascriptInterface public void updateCheck() { if (!Assets.ownPage(pageHost)) return; askNotifications(); Updater.check(getApplicationContext(), true, updateListener); }
         @JavascriptInterface public void updateAllow() {
+            if (!Assets.ownPage(pageHost)) return;
+            askNotifications();
             runOnUiThread(() -> {
                 try { ownScreenOnTop = true; startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))); }
                 catch (Exception e) { ownScreenOnTop = false; }
             });
         }
+        /** The app's page in Android's Settings (to allow the mic after he refused it twice). */
+        @JavascriptInterface public void openSettings() {
+            if (!Assets.ownPage(pageHost)) return;
+            runOnUiThread(() -> {
+                try { ownScreenOnTop = true; startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); }
+                catch (Exception e) { ownScreenOnTop = false; }
+            });
+        }
         @JavascriptInterface public void updateInstall() {
+            if (!Assets.ownPage(pageHost)) return;
             final Context app = getApplicationContext();
             new Thread(() -> Updater.install(app), "sh-update-install").start();
         }

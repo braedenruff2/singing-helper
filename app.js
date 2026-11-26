@@ -73,6 +73,13 @@ async function openMic() {
     ctx = await audioCtx();
     if (ctx.state !== 'running') await ctx.resume();
   } catch (e) { stream.getTracks().forEach((t) => t.stop()); throw e; } // don't leave the mic (and its indicator) on
+  // the app went to the background while Android was asking for the mic: don't switch it on behind his back
+  if (NATIVE && document.hidden) {
+    stream.getTracks().forEach((t) => t.stop());
+    ctx.suspend().catch(() => {});
+    $('lat').textContent = 'Mic stopped while the app was in the background. Tap Start mic.';
+    return;
+  }
   state.micStream = stream;
   state.micSrc = ctx.createMediaStreamSource(stream);
   state.micLatency = (stream.getAudioTracks()[0].getSettings().latency || 0.01) * 1000;
@@ -887,6 +894,7 @@ let polling = false, pollPauseUntil = 0;
 let pollTimer = 0;
 async function pollSpotify() {
   if (polling) return; // a slow answer must not be overtaken by (and then overwrite) a newer one
+  if (NATIVE && document.hidden) return; // the phone app in the background: no Spotify calls (battery, data)
   if (performance.now() < pollPauseUntil) return; // Spotify said "too many requests"
   polling = true;
   try {
@@ -1002,7 +1010,16 @@ $('part').onchange = (e) => {
 };
 
 // ---------------------------------------------------------------- wiring
-$('start').onclick = () => startMic().catch((e) => { $('lat').textContent = 'Mic error: ' + e.message; });
+$('start').onclick = () => startMic().catch((e) => {
+  $('lat').textContent = 'Mic error: ' + e.message;
+  // the phone app with the mic refused (Android stops asking after two refusals): offer its settings page
+  if (NATIVE && NATIVE.openSettings && e.name === 'NotAllowedError') {
+    $('lat').textContent = 'The app isn’t allowed to use the mic. ';
+    const b = document.createElement('button'); b.id = 'mic-settings'; b.textContent = 'Open app settings';
+    b.onclick = () => NATIVE.openSettings();
+    $('lat').append(b);
+  }
+});
 $('capture').onclick = () => (state.refTrack ? stopCapture() : captureSong().catch((e) => { if (e.name !== 'NotAllowedError') alert(e.message); }));
 window.__captureSong = captureSong; // lets tests feed a synthetic stream
 window.__songTarget = () => songTarget(songPos()); // for tests
@@ -1229,11 +1246,20 @@ if (NATIVE) {
   for (const id of ['capture', 'sync']) { const el = $(id); if (el) el.closest('.row').hidden = true; }
   for (const id of ['ahead', 'sync-status']) { const el = $(id); if (el) (el.closest('label') || el).hidden = true; }
   const hint = $('ahead') && $('ahead').closest('label') && $('ahead').closest('label').nextElementSibling; if (hint) hint.hidden = true;
+  // Spotify's Google / Apple / Facebook buttons leave the app and can't come back: say so where he logs in
+  const spHint = document.createElement('p'); spHint.className = 'hint'; spHint.id = 'sp-app-hint';
+  spHint.textContent = 'In the app, log in with your Spotify email and password (Google / Apple / Facebook open the browser and can’t come back).';
+  if ($('sp-setup')) $('sp-setup').append(spHint);
   const box = document.createElement('div'); box.id = 'updates'; document.querySelector('aside').append(box);
   window.SHUpdateState = drawUpdates;
   drawUpdates();
   // in the background the app lets go of the mic (and Android's mic indicator); Start mic again when you're back
-  document.addEventListener('visibilitychange', () => { if (document.hidden && state.node) stopMic('Mic stopped while the app was in the background. Tap Start mic.'); });
+  // and its audio (guide tone, drone) sleeps; it wakes when the app is back
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && state.node) stopMic('Mic stopped while the app was in the background. Tap Start mic.');
+    const c = state.ctx;
+    if (c && c.state !== 'closed') (document.hidden ? c.suspend() : c.resume()).catch(() => {});
+  });
 } else if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 $('ruri').textContent = location.origin + location.pathname;
 $('cid').value = sp.getClientId();

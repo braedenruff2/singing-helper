@@ -96,11 +96,15 @@ final class Updater {
         if (code[0] <= installedCode(app)) { p.edit().putString("from", "github").apply(); return true; }
         if (p.getInt("failed:" + code[0], 0) >= 3) return true;           // failed to install 3 times: wait for a newer one
         File f = apk(app, (int) code[0]), part = new File(f.getPath() + ".part");
+        if (Assets.alreadyHave(p.getInt("readyCode", 0), code[0], f.exists())) return true;   // downloaded on an earlier check: don't fetch it again
         try (OutputStream out = new FileOutputStream(part)) {
-            download(base + "SingingHelper.apk", out);
+            download(base + "SingingHelper.apk?t=" + System.currentTimeMillis() / 60000, out);   // past GitHub's raw cache
         }
         PackageInfo pi = app.getPackageManager().getPackageArchiveInfo(part.getPath(), 0);
-        if (pi == null || !app.getPackageName().equals(pi.packageName)) { part.delete(); throw new IOException("the downloaded update didn't check out"); }
+        long got = pi == null ? -1 : (Build.VERSION.SDK_INT >= 28 ? pi.getLongVersionCode() : pi.versionCode);
+        if (!Assets.updateChecksOut(pi == null ? null : pi.packageName, app.getPackageName(), got, code[0])) {
+            part.delete(); throw new IOException("the downloaded update didn't check out (a cached older file?)");
+        }
         if (!part.renameTo(f)) throw new IOException("couldn't keep the download");
         cleanOld(app, (int) code[0]);
         p.edit().putInt("readyCode", (int) code[0]).putString("readyName", name == null ? String.valueOf(code[0]) : name)
@@ -172,9 +176,13 @@ final class Updater {
             if (st == PackageInstaller.STATUS_PENDING_USER_ACTION) {
                 Intent confirm = i.getParcelableExtra(Intent.EXTRA_INTENT);
                 if (confirm != null) {
-                    // the app is in the background (it installs when he leaves it), so Android blocks opening the
-                    // prompt from here: put it in a notification he can tap instead
                     confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    // he tapped "Update now" with the app on screen: show Android's prompt now
+                    if (MainActivity.visible) {
+                        try { c.startActivity(confirm); prefs(c).edit().putString("error", "").apply(); return; } catch (Throwable ignored) { }
+                    }
+                    // the app is in the background (it installs when he has been away a while), so Android blocks
+                    // opening the prompt from here: put it in a notification he can tap instead
                     try {
                         NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
                         if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(new NotificationChannel("updates", "App updates", NotificationManager.IMPORTANCE_LOW));

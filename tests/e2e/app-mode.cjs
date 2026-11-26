@@ -32,8 +32,33 @@ test('app-mode', async ({ url, newPage, check, sleep }) => {
   await p.waitForFunction(() => window.__state.node);
   await p.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); });
   check('mic let go in the background', (await p.evaluate(() => window.__state.node)) == null && /background/.test(await p.textContent('#lat')));
+  check('audio sleeps in the background', (await p.evaluate(() => window.__state.ctx && window.__state.ctx.state)) === 'suspended', await p.evaluate(() => window.__state.ctx && window.__state.ctx.state));
+  await p.click('#start'); // still hidden: as if he left the app while Android asked for the mic
+  await sleep(400);
+  check('a mic opened while in the background is let go at once', (await p.evaluate(() => window.__state.node)) == null && !(await p.evaluate(() => window.__state.micStream))
+    && (await p.evaluate(() => window.__state.ctx.state)) === 'suspended');
+  await p.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => false }); document.dispatchEvent(new Event('visibilitychange')); });
+  await p.waitForFunction(() => window.__state.ctx.state === 'running');
+  check('audio wakes when the app is back', true);
+  await p.click('#start');
+  await p.waitForFunction(() => window.__state.node);
+  check('Start mic works again when back', true);
+  check('Spotify login hint in the app', /email and password/.test(await p.textContent('#sp-setup')));
+  // the mic refused for good: a button to the app's settings
+  const r = await newPage({ viewport: { width: 412, height: 915 } });
+  await r.addInitScript(() => {
+    window.__calls = [];
+    window.SHAndroid = { isApp: () => true, updateStatus: () => '{}', updateCheck() {}, updateAllow() {}, updateInstall() {}, openSettings: () => window.__calls.push('settings') };
+    navigator.mediaDevices.getUserMedia = () => { const e = new Error('Permission denied'); e.name = 'NotAllowedError'; return Promise.reject(e); };
+  });
+  await r.goto(url);
+  await r.click('#start');
+  await r.waitForSelector('#mic-settings');
+  await r.click('#mic-settings');
+  check('mic refused: Open app settings goes to Android', (await r.evaluate(() => window.__calls.join())) === 'settings');
   // the PC page is unchanged
   const q = await newPage();
   await q.goto(url);
   check('PC page: Live song pitch and no update panel', await q.isVisible('#capture') && !(await q.$('#updates')));
+  check('PC page: no app login hint', !(await q.$('#sp-app-hint')));
 });
