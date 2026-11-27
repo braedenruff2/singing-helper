@@ -10,14 +10,20 @@ const median = (a) => { const s = a.slice().sort((x, y) => x - y); return s[s.le
 
 // Split a voiced run where the pitch settles on a new semitone for 60 ms (vibrato and slides don't split it).
 function splitRun(run, startMs, th = 0.7, hold = 3) {
+  // the current note's pitches kept sorted as it grows (same medians as sorting each time, but a long held note no
+  // longer re-sorts thousands of pitches on every frame: a 4-minute drone took 13-15 s)
+  const at = (seg, v) => { let lo = 0, hi = seg.length; while (lo < hi) { const m = (lo + hi) >> 1; if (seg[m] < v) lo = m + 1; else hi = m; } return lo; };
   const out = [];
-  let start = 0;
+  let start = 0, seg = [];
   for (let k = 0; k < run.length; k++) {
+    const v = run[k][1];
+    seg.splice(at(seg, v), 0, v);
     if (k - start < hold || k + hold > run.length) continue;
-    const cur = median(run.slice(start, k + 1).map((x) => x[1]));
+    const cur = seg[seg.length >> 1];
     if (run.slice(k, k + hold).every((x) => Math.abs(x[1] - cur) > th)) {
-      out.push([run[start][0], run[k][0], Math.round(median(run.slice(start, k).map((x) => x[1])))]);
-      start = k;
+      seg.splice(at(seg, v), 1); // the note so far, without this frame
+      out.push([run[start][0], run[k][0], Math.round(seg[seg.length >> 1])]);
+      start = k; seg = [v];
     }
   }
   out.push([run[start][0], run[run.length - 1][0] + STEP_MS, Math.round(median(run.slice(start).map((x) => x[1])))]);
@@ -71,11 +77,17 @@ export function syllables(word) {
   return parts.filter(Boolean);
 }
 
+// The words of a synced-lyrics line, without music marks: "♪", "♪ ♪", "(Instrumental)", "[Music]" -> '' (not sung).
+export function sungText(text) {
+  const t = String(text || '').replace(/[♪♫♬♩🎵🎶]/gu, ' ').replace(/[(\[]\s*(instrumental|music|intro|outro|interlude|solo|guitar solo|break)\s*[)\]]/gi, ' ').trim();
+  return /[\p{L}\p{N}]/u.test(t) ? t.replace(/\s+/g, ' ') : '';
+}
+
 // lines: [{t, text}] (synced lyrics, ms). Gives each note a syllable ("~" = a held vowel); returns {texts, lineStarts}.
 export function attachLyrics(notes, lines) {
   const texts = notes.map(() => '~'), lineStarts = [];
   (lines || []).forEach((ln, li) => {
-    const body = String(ln.text || '').trim();
+    const body = sungText(ln.text);
     if (!body) return;
     const end = li + 1 < lines.length ? lines[li + 1].t : ln.t + 8000;
     const idx = [];
@@ -97,7 +109,7 @@ export function attachLyrics(notes, lines) {
 
 // With synced lyrics, a note far from any sung line is the band (Live song pitch can't tell in instrumental parts).
 export function keepSung(notes, lines) {
-  const ls = (lines || []).filter((l) => String(l.text || '').trim());
+  const ls = (lines || []).filter((l) => sungText(l.text));
   if (!ls.length) return notes;
   return notes.filter((n) => ls.some((l, i) => {
     const next = (lines || []).find((x) => x.t > l.t);

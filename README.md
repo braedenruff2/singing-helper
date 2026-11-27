@@ -262,6 +262,11 @@ From how the project was built:
 
 ## Changes by the autopilot
 
+- **27 Nov 2026 (fixes from a code review)**: Make notes: Finish while Spotify briefly reports nothing shows the notes
+  at once and clears the old offset; pitch heard after a seek elsewhere / skip back / repeat-one is no longer saved at
+  the wrong time (dropped at the next poll); synced-lyric lines that are only music marks ("♪", "(Instrumental)") count
+  as not sung; long held notes no longer slow note-making down. TV: the Mic delay offer appears only when the new
+  delay fits clearly better and would have scored more. Tests: notes.mjs, karaoke.mjs, e2e rec-notes-edge.
 - **26 Nov 2026 (TV Mic delay)**: after a song the TV measures how late the phone's pitch arrives (`estimateLag` in
   karaoke.js) and offers that Mic delay with the score it would have given. Tests: karaoke.mjs, e2e tv.
 - **26 Nov 2026 (karaoke on the TV)**: first version of his TV karaoke request (see "Karaoke on the TV"): the TV page

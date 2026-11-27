@@ -1,6 +1,6 @@
 // Unit tests for notes.js ("Make notes from this song": song pitch frames -> UltraStar chart). Node only.
 //   node tests/notes.mjs
-import { framesToNotes, syllables, attachLyrics, keepSung, chartFromFrames, STEP_MS } from '../notes.js';
+import { framesToNotes, syllables, attachLyrics, keepSung, chartFromFrames, STEP_MS, sungText } from '../notes.js';
 import { parseUltraStar } from '../lyrics.js';
 
 let fails = 0;
@@ -41,6 +41,49 @@ check('syllables like make_chart.py', [['singing', 'sing|ing'], ['little', 'lit|
   check('too little heard (under 8 notes): no chart', chartFromFrames(sing([[0, 300, 60]])).text === null);
   const noLyr = chartFromFrames(frames, {});
   check('no synced lyrics: notes only', noLyr.text && !noLyr.lyrics && parseUltraStar(noLyr.text).notes.length === 9);
+}
+// ---- the faster splitRun gives the same notes as the old sort-every-frame one; a 4-minute drone is quick
+{
+  const med = (a) => { const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; };
+  const oldSplit = (run, th = 0.7, hold = 3) => { // the version before 27 Nov, kept here as the reference
+    const out = []; let start = 0;
+    for (let k = 0; k < run.length; k++) {
+      if (k - start < hold || k + hold > run.length) continue;
+      const cur = med(run.slice(start, k + 1).map((x) => x[1]));
+      if (run.slice(k, k + hold).every((x) => Math.abs(x[1] - cur) > th)) { out.push([run[start][0], run[k][0], Math.round(med(run.slice(start, k).map((x) => x[1])))]); start = k; }
+    }
+    out.push([run[start][0], run[run.length - 1][0] + STEP_MS, Math.round(med(run.slice(start).map((x) => x[1])))]);
+    return out;
+  };
+  const oldNotes = (frames, minMs = 100, gapMs = 40, mergeGapMs = 60) => {
+    const f = frames.filter((x) => isFinite(x[0]) && isFinite(x[1])).sort((a, b) => a[0] - b[0]);
+    const runs = []; for (const x of f) { const r = runs[runs.length - 1]; if (r && x[0] - r[r.length - 1][0] <= gapMs) r.push(x); else runs.push([x]); }
+    const notes = []; for (const r of runs) for (const [s0, e, m] of oldSplit(r)) if (e - s0 >= minMs) notes.push({ s: s0, d: e - s0, m });
+    const merged = []; for (const n of notes) { const q = merged[merged.length - 1]; if (q && q.m === n.m && n.s - (q.s + q.d) <= mergeGapMs) q.d = n.s + n.d - q.s; else merged.push({ ...n }); }
+    return merged;
+  };
+  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  let same = 0;
+  for (let trial = 0; trial < 40; trial++) {
+    const parts = []; let t = 0;
+    for (let i = 0; i < 25; i++) { const d = 60 + Math.round(rnd() * 600 / 20) * 20; parts.push([t, d, 50 + Math.floor(rnd() * 20)]); t += d + (rnd() < 0.3 ? 20 * Math.floor(rnd() * 6) : 0); }
+    const fr = sing(parts, rnd() * 0.6).map(([ms, m]) => [ms, m + (rnd() - 0.5) * 0.4]);
+    if (JSON.stringify(framesToNotes(fr)) === JSON.stringify(oldNotes(fr))) same++;
+  }
+  check('faster note splitting: same notes as before on 40 random sung lines', same === 40, same + '/40');
+  const drone = []; for (let t = 0; t < 240000; t += 20) drone.push([t, 57 + 0.3 * Math.sin(t / 90)]);
+  const t0 = Date.now(), dn = framesToNotes(drone), ms = Date.now() - t0;
+  check('a 4-minute held drone: one note, well under a second', dn.length === 1 && ms < 1000, ms + ' ms');
+}
+// ---- music marks in synced lyrics aren't sung words
+{
+  check('sungText: music marks and (Instrumental) are not words', sungText('♪') === '' && sungText(' ♪ ♪ ') === '' && sungText('(Instrumental)') === '' && sungText('[Music]') === '' && sungText('🎵') === '');
+  check('sungText: real words stay (marks around them dropped)', sungText('♪ Hello there ♪') === 'Hello there' && sungText('Sing (yeah)') === 'Sing (yeah)' && sungText('99 Luftballons') === '99 Luftballons');
+  const notes = [{ s: 1000, d: 300, m: 60 }, { s: 6000, d: 300, m: 62 }, { s: 6500, d: 300, m: 64 }];
+  const lines = [{ t: 900, text: 'la la' }, { t: 5000, text: '♪' }, { t: 9000, text: '' }];
+  check('keepSung: notes in a "♪" stretch are the band, dropped', JSON.stringify(keepSung(notes, lines).map((n) => n.s)) === '[1000]', JSON.stringify(keepSung(notes, lines)));
+  const at = attachLyrics(notes, lines);
+  check('attachLyrics: no "♪" syllable on a note', at.texts.every((x) => !/♪/.test(x)) && at.lineStarts.length === 1, JSON.stringify(at));
 }
 console.log(fails ? `notes: ${fails} FAILED` : 'notes: passed');
 process.exit(fails ? 1 : 0);
