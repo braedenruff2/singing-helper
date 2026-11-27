@@ -209,8 +209,10 @@ function songTime(now) {
 // The song's audio won't play (missing file, a format the TV can't play): lyrics and bars run on the clock instead.
 function noAudio(song) {
   if (S.song !== song || S.screen !== 'sing' || S.clock || S.ended) return;
-  S.clock = { base: 0, at: performance.now() };
-  if (S.paused) S.clock = { base: 0, at: 0 };
+  // the audio failed part way (Wi-Fi dropped the file): the words carry on from where it got to, not from the start
+  const from = Math.max(0, (audio.currentTime || 0) * 1000) || 0;
+  S.clock = { base: from, at: performance.now() };
+  if (S.paused) S.clock = { base: from, at: 0 };
   $('now').textContent = song.title + ' · (no sound: the audio file didn’t play)';
 }
 audio.onerror = () => { if (S.song && S.song.audio && S.screen === 'sing') noAudio(S.song); };

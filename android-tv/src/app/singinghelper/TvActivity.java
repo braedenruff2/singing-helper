@@ -238,7 +238,9 @@ public class TvActivity extends Activity {
             synchronized (this) {
                 long wait = lockedUntil - System.currentTimeMillis();
                 if (wait > 0) { refuse(sock, in, out, len, 429, "{\"error\":\"Too many wrong codes: try again in " + (wait / 1000 + 1) + " s\"}"); return; }
-                if (!TvFiles.codeOk(TvFiles.query(target, "code"), code)) {
+                String given = TvFiles.query(target, "code");
+                if (!TvFiles.isGuess(given)) { refuse(sock, in, out, len, 403, "{\"error\":\"Type the code shown on the TV\"}"); return; }
+                if (!TvFiles.codeOk(given, code)) {
                     wrongCodes++;
                     lockedUntil = System.currentTimeMillis() + TvFiles.lockoutMs(wrongCodes);
                     refuse(sock, in, out, len, 403, "{\"error\":\"Wrong code: use the one on the TV\"}");

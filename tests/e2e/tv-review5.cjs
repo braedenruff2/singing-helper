@@ -59,6 +59,13 @@ test('tv-review5', async ({ newPage, check, url, sleep }) => {
   await sleep(1500);
   const st = await p.evaluate(() => ({ screen: SHTV.state().screen, playing: !document.getElementById('audio').paused, lib: !document.getElementById('library').hidden }));
   check('the late reload doesn\'t put the list over the song he started', st.screen === 'sing' && !st.lib && st.playing, JSON.stringify(st));
+  // the audio fails part way: the words carry on from there (they used to jump back to the start)
+  await sleep(1200);
+  const before = await p.evaluate(() => SHTV.state().t);
+  await p.evaluate(() => document.getElementById('audio').dispatchEvent(new Event('error')));
+  await sleep(300);
+  const after = await p.evaluate(() => SHTV.state().t);
+  check('audio error mid-song: the song time carries on, not from 0', before > 900 && after >= before, before + ' -> ' + after);
   // OK held down: the song doesn't pause and resume
   await p.keyboard.down('Enter'); await p.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true }))); await p.keyboard.up('Enter');
   check('a held OK pauses once, repeats ignored', (await p.evaluate(() => SHTV.state().paused)) === true);

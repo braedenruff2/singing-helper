@@ -88,6 +88,10 @@ final class TvFiles {
     }
 
     /** The code on the TV screen must match (so only someone who can see the TV adds or removes songs). */
+    /* A request with no code at all (the browser's own /favicon.ico, a stray reload) isn't a guess at the code: it
+       must not count towards the lock-out, or a few page loads would lock uploads before he typed anything. */
+    static boolean isGuess(String given) { return given != null && !given.isEmpty(); }
+
     static boolean codeOk(String given, String code) {
         if (given == null || code == null || given.length() != code.length()) return false;
         int d = 0;
