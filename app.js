@@ -295,7 +295,10 @@ function onRefPitch(midi) {
 function recFrame(raw, midi) {
   const r = state.rec;
   if (!r || !state.track || state.exerciseMode || state.track.id !== r.track.id || songPaused() || raw < 0) return;
-  r.frames.set(Math.round(raw / STEP_MS), midi);
+  if (r.track.durationMs && raw > r.track.durationMs) return; // past the end (repeat-one before the next poll)
+  const k = Math.round(raw / STEP_MS);
+  r.frames.set(k, midi);
+  (r.since || (r.since = new Set())).add(k); // written since the last Spotify poll: dropped if that poll shows a jump
   if (!r.lyrics && state.lyrics && state.shownId === r.track.id) r.lyrics = state.lyrics;
 }
 function recProgress() {
@@ -326,10 +329,12 @@ function finishRec(why) {
     $('rec-status').textContent = `Too little singing heard in “${r.track.name}” to make notes (${res.notes} notes)` + (why === 'stop' ? ': the tab sharing stopped.' : '. Let more of the song play next time.');
     return;
   }
-  const playing = state.track && state.track.id === r.track.id;
+  // the song is still the one on screen (Spotify may answer "nothing" for a moment while it's paused or between devices)
+  const playing = r.track.id === (state.track ? state.track.id : state.shownId);
   useChart(res.text, 'notes from the song', playing ? undefined : r.track);
   // the notes sit at the song's own times: an offset saved for an older chart or the lyrics would shift them
-  if (playing) setOffset(0); else try { localStorage.removeItem('offset_' + r.track.id); } catch (_) { /* ignore */ }
+  if (playing) setOffset(0);
+  if (!playing || !state.track) try { localStorage.removeItem('offset_' + r.track.id); } catch (_) { /* ignore */ }
   $('rec-status').textContent = `Made ${res.notes} notes for “${r.track.name}”` + (res.lyrics ? ' with the lyrics' : ' (no synced lyrics found, so notes only)') +
     (playing ? '. They show from now on; use Auto-sync or the offset slider if they sit a little early or late.' : '. They load when it plays again.');
 }
@@ -1041,6 +1046,15 @@ async function pollSpotify() {
       const stale = sg && np.at < sg.until && Math.abs(np.progressMs - (sg.from + (np.at - sg.fromAt))) < 1000;
       if (stale && Math.abs(diff) > 1000) np.progressMs = predicted;
       else if (Math.abs(diff) < 500) np.progressMs = predicted + diff * 0.2;
+    }
+    // making notes: pitch heard since the last poll was placed by the guessed position; if Spotify now says it jumped
+    // (a seek on another device, a skip back, repeat-one), those frames sit at the wrong times: drop them
+    const rec = state.rec;
+    if (rec && !changed && old && old.id === np.id && rec.track.id === np.id) {
+      if (old.isPlaying && np.isPlaying && rec.since && Math.abs(np.progressMs - (old.progressMs + (np.at - old.at))) >= 1000) {
+        for (const k of rec.since) rec.frames.delete(k);
+      }
+      rec.since = new Set();
     }
     state.track = np;
     if (changed) onTrackChange(np);

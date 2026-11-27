@@ -97,6 +97,22 @@ for (const f of readdirSync(ex).filter((f) => f.endsWith('.txt'))) {
   }
   check('not enough singing: no guess', estimateLag(chart, sing(150).slice(0, 40)) === null);
   check('nothing sung: no guess', estimateLag(chart, sing(150).map((f) => ({ t: f.t, midi: null }))) === null);
+  {
+    const e = estimateLag(chart, sing(120, 0.2), { current: 120 });
+    check('estimateLag tells how well the delay in use fits (in the plateau: as well as the best)', e && e.current != null && e.current >= e.hits * 0.98, JSON.stringify(e));
+    const f = estimateLag(chart, sing(320, 0.2), { current: 0 });
+    check('a delay far off fits clearly worse', f && f.current < f.hits * 0.9, JSON.stringify(f));
+  }
+  {
+    // a quick trill (100 ms notes, 60/62): it fits again every 200 ms; the answer stays in the plateau around the best
+    // fit instead of averaging separate spots (it said 190 ms for a 0 ms delay)
+    const tr = { notes: [] };
+    for (let i = 0; i < 100; i++) tr.notes.push({ t: 1000 + i * 100, dur: 100, midi: i % 2 ? 62 : 60 });
+    const fr = [];
+    for (let t = 0; t < 12000; t += 20) { const n = tr.notes.find((x) => t >= x.t + 30 && t < x.t + x.dur - 10); fr.push({ t, midi: n ? n.midi : null }); }
+    const e = estimateLag(tr, fr);
+    check('trill sung on time: the delay found is near 0 or one clear fit, never between two fits', e && (e.lag <= 40 || e.lag % 200 <= 40 || e.lag % 200 >= 160), JSON.stringify(e));
+  }
   const held = { notes: [{ t: 0, dur: 20000, midi: 60 }] };
   const hf = []; for (let t = 0; t < 20000; t += 20) hf.push({ t: t + 200, midi: 60 });
   check('one long held note: any delay fits, so no guess', estimateLag(held, hf) === null, JSON.stringify(estimateLag(held, hf)));

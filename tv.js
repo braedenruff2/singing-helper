@@ -238,10 +238,14 @@ function finish() {
 function lagOffer() {
   const box = $('lag-offer'); box.hidden = true; box.innerHTML = '';
   if (!S.pitchOn || !S.raw || !S.chart) return;
-  const e = estimateLag(S.chart, S.raw);
+  const e = estimateLag(S.chart, S.raw, { current: S.lag });
   if (!e || Math.abs(e.lag - S.lag) < 40) return;
+  if (e.current != null && e.current >= e.hits * 0.98) return; // the delay in use fits as well (a flat stretch): no offer
   const sc = new Scorer(S.chart, { tolerance: LEVELS[S.level] || LEVELS.normal });
   for (const f of S.raw) sc.frame(f.t - e.lag, f.midi);
+  const now = new Scorer(S.chart, { tolerance: LEVELS[S.level] || LEVELS.normal });
+  for (const f of S.raw) now.frame(f.t - S.lag, f.midi);
+  if (sc.points <= now.points) return; // it wouldn't have scored more: keep his Mic delay
   const nice = Math.round(e.lag / 10) * 10;
   box.innerHTML = '<p>Your pitch reached the TV about <b>' + nice + ' ms</b> after the song (Mic delay is ' + S.lag + ' ms). With ' + nice + ' ms this would have scored ' + sc.points.toLocaleString() + '.</p>';
   const b = document.createElement('button'); b.id = 'lag-use'; b.textContent = 'Use ' + nice + ' ms from now on';

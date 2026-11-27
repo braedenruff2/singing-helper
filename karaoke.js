@@ -144,22 +144,32 @@ export function estimateLag(chart, frames, opts = {}) {
     const n = notes[k];
     return n && t >= n.t && t < n.t + n.dur ? n : null;
   };
-  let best = null;
-  const scores = [];
-  for (let lag = 0; lag <= 500; lag += 10) {
+  const hitsAt = (lag) => {
     k = 0;
     let hits = 0;
     for (const f of voiced) { const n = at(f.t - lag); if (n && Math.abs(foldTo(f.midi, n.midi) - n.midi) <= tol) hits++; }
+    return hits;
+  };
+  let best = null, bi = 0;
+  const scores = [];
+  for (let lag = 0; lag <= 500; lag += 10) {
+    const hits = hitsAt(lag);
     scores.push(hits);
-    if (!best || hits > best.hits) best = { lag, hits };
+    if (!best || hits > best.hits) { best = { lag, hits }; bi = scores.length - 1; }
   }
   if (best.hits < (opts.minHits || 40)) return null;
   const sorted = scores.slice().sort((a, b) => a - b), median = sorted[sorted.length >> 1];
   if (best.hits < median * 1.1) return null; // flat: every delay fits about as well (held notes only)
-  // the middle of the best plateau (several delays often fit equally well)
-  const top = scores.map((h, i) => (h >= best.hits * 0.98 ? i * 10 : -1)).filter((x) => x >= 0);
-  const lag = top[top.length >> 1];
-  return { lag, hits: best.hits, frames: voiced.length };
+  // the middle of the best plateau (several delays often fit equally well): only the run of near-best delays around
+  // the best one, so two separate good spots (a quick trill fits at 0 and at 380 ms) aren't averaged into neither
+  let lo = bi, hi = bi;
+  while (lo > 0 && scores[lo - 1] >= best.hits * 0.98) lo--;
+  while (hi < scores.length - 1 && scores[hi + 1] >= best.hits * 0.98) hi++;
+  const lag = (lo + ((hi - lo + 1) >> 1)) * 10;
+  const out = { lag, hits: scores[lag / 10], best: best.hits, frames: voiced.length };
+  // how well the delay in use now fits: the caller offers a change only when the new one clearly fits better
+  if (opts.current != null && isFinite(opts.current)) out.current = hitsAt(opts.current);
+  return out;
 }
 
 // ---- The lyric lines on screen -------------------------------------------------------------------------------
