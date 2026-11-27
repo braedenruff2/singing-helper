@@ -105,6 +105,15 @@ test('tv', async ({ newPage, url, check, shot, sleep }) => {
   await p.click('#songs button[data-i="1"]'); await p.waitForSelector('#sing:not([hidden])'); await sleep(600);
   await p.evaluate(() => SHTV.hide());
   check('Home on the remote pauses the song', await p.evaluate(() => document.getElementById('audio').paused && SHTV.state().paused));
+  // ---- Find TV on the phone (hello) is not a connected mic yet; pitch is
+  await p.evaluate(() => SHTV.back()); await p.waitForSelector('#library:not([hidden])');
+  await p.evaluate(() => SHTV.message(JSON.stringify({ v: 1, type: 'hello', name: 'Pixel 9' })));
+  const st1 = await p.textContent('#status');
+  check('a hello alone says the phone was found, not that its mic is connected', /Phone found \(Pixel 9\)/.test(st1) && !/connected/.test(st1), st1);
+  await p.evaluate(() => SHTV.message(JSON.stringify({ v: 1, type: 'pitch', seq: 4242, hz: 220, conf: 0.9 })));
+  await p.waitForFunction(() => /Phone mic connected/.test(document.getElementById('status').textContent));
+  check('pitch from the phone: mic connected', true);
+  await p.click('#songs button[data-i="1"]'); await p.waitForSelector('#sing:not([hidden])'); await sleep(300);
   // ---- the remote's media keys, as the TV app hands them over (SHTV.media): play / pause / play-pause
   check('media play resumes, a second play changes nothing', await p.evaluate(() => { SHTV.media('play'); const a = SHTV.state().paused; SHTV.media('play'); return !a && !SHTV.state().paused; }));
   check('media pause pauses, a second pause keeps it paused', await p.evaluate(() => { SHTV.media('pause'); SHTV.media('pause'); return SHTV.state().paused; }));

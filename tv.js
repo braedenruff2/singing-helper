@@ -30,7 +30,8 @@ window.SHTV = {
     const m = decodeMessage(text);
     if (!m) return false;
     const now = arrived == null ? performance.now() : arrived;
-    if (m.type === 'hello') { S.lastMsg = now; S.phone = m.name; status(); return true; }
+    // Find TV on the phone: the phone is there, but its mic isn't sending yet (that's "Send my pitch to the TV")
+    if (m.type === 'hello') { S.helloAt = now; S.phone = m.name; status(); return true; }
     // the phone app restarted (its numbers start again) or went quiet for a while: a new session
     if (S.lastSeq != null && (now - S.lastMsg > 2000 || ((S.lastSeq - m.seq) >>> 0) < 0x80000000 && ((S.lastSeq - m.seq) >>> 0) > 500)) { S.lastSeq = null; S.phoneOff = null; }
     if (!newer(m.seq, S.lastSeq)) return false;
@@ -99,6 +100,7 @@ function status() {
   add.textContent = info && info.upload ? 'Add songs: on a PC on the same Wi-Fi, open ' + info.upload + ' and type the code ' + info.code + '.' : '';
   if (S.problem) el.textContent = S.problem;
   else if (live) el.textContent = 'Phone mic connected' + (S.phone && S.phone !== 'phone' ? ' (' + S.phone + ')' : '') + hearing;
+  else if (S.helloAt && performance.now() - S.helloAt < 15000) el.textContent = 'Phone found' + (S.phone && S.phone !== 'phone' ? ' (' + S.phone + ')' : '') + ': on the phone, tick “Send my pitch to the TV”';
   else if (info && info.ip) el.textContent = 'Phone mic: on the phone, Karaoke on TV > ' + info.ip;
   else el.textContent = S.pitchOn ? 'Phone mic: not connected (pitch bars need the TV app)' : '';
 }
