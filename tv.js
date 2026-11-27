@@ -43,6 +43,12 @@ window.SHTV = {
   },
   // the Android back button: true when the page handled it
   back() { return back(); },
+  // the remote's media keys, from the TV app: 'playpause', 'play' or 'pause' (only while singing)
+  media(kind) {
+    if (S.screen !== 'sing') return false;
+    if (kind === 'playpause' || (kind === 'play' && S.paused) || (kind === 'pause' && !S.paused)) togglePause();
+    return true;
+  },
   // the TV app: songs were added from a PC; something went wrong listening for the phone
   songsChanged() { if (S.screen === 'library') loadLibrary().then(() => { if (S.screen === 'library') show('library'); }); else S.reload = true; },
   problem(text) { S.problem = String(text); status(); },

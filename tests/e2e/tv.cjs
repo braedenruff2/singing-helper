@@ -105,6 +105,10 @@ test('tv', async ({ newPage, url, check, shot, sleep }) => {
   await p.click('#songs button[data-i="1"]'); await p.waitForSelector('#sing:not([hidden])'); await sleep(600);
   await p.evaluate(() => SHTV.hide());
   check('Home on the remote pauses the song', await p.evaluate(() => document.getElementById('audio').paused && SHTV.state().paused));
+  // ---- the remote's media keys, as the TV app hands them over (SHTV.media): play / pause / play-pause
+  check('media play resumes, a second play changes nothing', await p.evaluate(() => { SHTV.media('play'); const a = SHTV.state().paused; SHTV.media('play'); return !a && !SHTV.state().paused; }));
+  check('media pause pauses, a second pause keeps it paused', await p.evaluate(() => { SHTV.media('pause'); SHTV.media('pause'); return SHTV.state().paused; }));
+  check('media play-pause toggles', await p.evaluate(() => { SHTV.media('playpause'); const a = SHTV.state().paused; SHTV.media('playpause'); return !a && SHTV.state().paused; }));
   await p.evaluate(() => SHTV.back()); await p.waitForSelector('#library:not([hidden])');
   // ---- OK twice quickly while the song loads: it still plays after the second OK (no silent clock)
   await p.click('#songs button[data-i="1"]'); await p.keyboard.press('Enter'); await p.keyboard.press('Enter');

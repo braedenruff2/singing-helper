@@ -262,6 +262,10 @@ From how the project was built:
 
 ## Changes by the autopilot
 
+- **27 Nov 2026 (TV remote and address)**: the remote's play/pause media keys reach the song once per press (the TV
+  app hands them to the page: `SHTV.media`), and the address the TV shows (and tells the phone) is its Wi-Fi or
+  Ethernet one, never a Wi-Fi Direct (192.168.49.x) or VPN address the phone and PC can't reach (`TvFiles.pickIp`).
+  Tests: Java TvFilesTest, e2e tv.
 - **27 Nov 2026 (fixes from a code review)**: Make notes: Finish while Spotify briefly reports nothing shows the notes
   at once and clears the old offset; pitch heard after a seek elsewhere / skip back / repeat-one is no longer saved at
   the wrong time (dropped at the next poll); synced-lyric lines that are only music marks ("♪", "(Instrumental)") count

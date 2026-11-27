@@ -105,6 +105,37 @@ final class TvFiles {
         return "{\"v\":1,\"type\":\"tv\",\"name\":" + Assets.quote(name) + ",\"ip\":" + Assets.quote(ip) + "}";
     }
 
+    /** Which of the TV's addresses the phone and the PC should use: Ethernet first, then Wi-Fi, then anything else on
+     *  the home network; never Wi-Fi Direct (p2p*, often 192.168.49.x), VPNs or mobile data. Each entry is
+     *  {interface name, IPv4 address}; "" when there is none. */
+    static int ipRank(String ifName, String addr) {
+        String n = ifName == null ? "" : ifName.toLowerCase(Locale.ROOT);
+        if (addr == null || addr.isEmpty() || n.startsWith("p2p") || n.startsWith("tun") || n.startsWith("ppp") || n.startsWith("rmnet")
+            || n.startsWith("ccmni") || n.startsWith("dummy") || n.startsWith("veth") || n.startsWith("docker") || n.startsWith("ipsec")) return -1;
+        if (n.startsWith("eth")) return 3;
+        if (n.startsWith("wlan") || n.startsWith("wifi")) return 2;
+        return 1;
+    }
+    static String pickIp(java.util.List<String[]> found) {
+        String best = ""; int bestRank = -1;
+        if (found != null) for (String[] f : found) {
+            if (f == null || f.length < 2) continue;
+            int r = ipRank(f[0], f[1]);
+            if (r > bestRank) { bestRank = r; best = f[1]; }
+        }
+        return bestRank < 0 ? "" : best;
+    }
+
+    /** A remote's media key (Android key code) as what the page should do: "playpause", "play", "pause", or null. */
+    static String mediaAction(int keyCode) {
+        switch (keyCode) {
+            case 85: case 79: return "playpause"; // KEYCODE_MEDIA_PLAY_PAUSE, KEYCODE_HEADSETHOOK
+            case 126: return "play";              // KEYCODE_MEDIA_PLAY
+            case 127: return "pause";             // KEYCODE_MEDIA_PAUSE
+            default: return null;
+        }
+    }
+
     /** The Host a browser sent must be this TV's own address (a web page can't reach the upload page by a name it
      *  points at the TV: DNS rebinding). */
     static boolean hostOk(String host, String ip) {

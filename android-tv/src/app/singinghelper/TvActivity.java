@@ -111,6 +111,16 @@ public class TvActivity extends Activity {
         super.onStop();
     }
 
+    /** The remote's play/pause keys go to the page once per press (WebView may not pass media keys on, or pass them
+     *  twice through the media session). */
+    @Override public boolean dispatchKeyEvent(android.view.KeyEvent e) {
+        String act = TvFiles.mediaAction(e.getKeyCode());
+        if (act == null || web == null) return super.dispatchKeyEvent(e);
+        if (e.getAction() == android.view.KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0)
+            web.evaluateJavascript("window.SHTV&&SHTV.media&&SHTV.media(" + Assets.quote(act) + ")", null);
+        return true;
+    }
+
     @Override public void onBackPressed() {
         if (web == null) { super.onBackPressed(); return; }
         web.evaluateJavascript("!!(window.SHTV&&SHTV.back())", v -> { if (!"true".equals(v)) TvActivity.super.onBackPressed(); });
@@ -147,10 +157,12 @@ public class TvActivity extends Activity {
     /** This TV's address on the home network (the phone and the PC need it). */
     static String ip() {
         try {
+            java.util.List<String[]> found = new java.util.ArrayList<>();
             for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
                 if (!ni.isUp() || ni.isLoopback()) continue;
-                for (InetAddress a : Collections.list(ni.getInetAddresses())) if (a instanceof Inet4Address && a.isSiteLocalAddress()) return a.getHostAddress();
+                for (InetAddress a : Collections.list(ni.getInetAddresses())) if (a instanceof Inet4Address && a.isSiteLocalAddress()) found.add(new String[]{ni.getName(), a.getHostAddress()});
             }
+            return TvFiles.pickIp(found); // Wi-Fi / Ethernet, never a Wi-Fi Direct address the phone can't reach
         } catch (Exception ignored) { }
         return "";
     }

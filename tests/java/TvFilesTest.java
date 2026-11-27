@@ -36,6 +36,17 @@ public class TvFilesTest {
             && TvFiles.range("bytes=0-1,5-6", 1000) == null && TvFiles.range("items=0-1", 1000) == null && TvFiles.range(null, 1000) == null && TvFiles.range("bytes=x-", 1000) == null
             && TvFiles.range("bytes=-0", 1000) == null && TvFiles.range("bytes=0-", 0) == null);
         check("wrong codes: a growing wait after 5", TvFiles.lockoutMs(4) == 0 && TvFiles.lockoutMs(5) == 30_000 && TvFiles.lockoutMs(6) == 60_000 && TvFiles.lockoutMs(100) == 3_600_000);
+        java.util.List<String[]> nets = new java.util.ArrayList<>();
+        nets.add(new String[]{"p2p-wlan0-0", "192.168.49.1"}); nets.add(new String[]{"wlan0", "192.168.1.23"}); nets.add(new String[]{"tun0", "10.8.0.2"});
+        check("the TV's address: Wi-Fi, not Wi-Fi Direct or a VPN, whatever the order", "192.168.1.23".equals(TvFiles.pickIp(nets)));
+        nets.add(new String[]{"eth0", "192.168.1.40"});
+        check("Ethernet before Wi-Fi", "192.168.1.40".equals(TvFiles.pickIp(nets)));
+        java.util.List<String[]> only = new java.util.ArrayList<>(); only.add(new String[]{"p2p0", "192.168.49.1"});
+        check("only Wi-Fi Direct: no address", "".equals(TvFiles.pickIp(only)) && "".equals(TvFiles.pickIp(null)) && "".equals(TvFiles.pickIp(new java.util.ArrayList<>())));
+        java.util.List<String[]> odd = new java.util.ArrayList<>(); odd.add(new String[]{"br0", "192.168.0.5"});
+        check("another home-network interface still counts", "192.168.0.5".equals(TvFiles.pickIp(odd)));
+        check("media keys", "playpause".equals(TvFiles.mediaAction(85)) && "playpause".equals(TvFiles.mediaAction(79)) && "play".equals(TvFiles.mediaAction(126))
+            && "pause".equals(TvFiles.mediaAction(127)) && TvFiles.mediaAction(66) == null && TvFiles.mediaAction(4) == null);
         System.out.println(fails == 0 ? "java (TV): passed" : "java (TV): " + fails + " FAILED");
         System.exit(fails == 0 ? 0 : 1);
     }
