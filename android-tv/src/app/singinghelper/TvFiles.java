@@ -27,9 +27,11 @@ final class TvFiles {
         n = n.trim();
         if (n.isEmpty() || n.startsWith(".") || n.length() > 120) return null;
         StringBuilder b = new StringBuilder();
-        for (int i = 0; i < n.length(); i++) {
-            char c = n.charAt(i);
-            b.append(Character.isLetterOrDigit(c) || " ._()'&,!+-".indexOf(c) >= 0 ? c : '_');
+        // by code point (an emoji is one character, as in the page's audioName), letters and decimal digits kept
+        for (int i = 0; i < n.length(); ) {
+            int c = n.codePointAt(i);
+            i += Character.charCount(c);
+            if (Character.isLetterOrDigit(c) || (c < 128 && " ._()'&,!+-".indexOf(c) >= 0)) b.appendCodePoint(c); else b.append('_');
         }
         String out = b.toString();
         String low = out.toLowerCase(Locale.ROOT);

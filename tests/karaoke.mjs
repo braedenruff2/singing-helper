@@ -4,7 +4,7 @@
 import { readFileSync, readdirSync } from 'fs';
 import {
   readUltraStar, writeUltraStar, headValue, setHead, chartToUltraStar, parseUltraStar,
-  Scorer, LEVELS, foldTo, hzToMidi, rating, lyricView, estimateLag, encodePitch, decodeMessage, newer, PORT,
+  Scorer, LEVELS, foldTo, hzToMidi, rating, lyricView, estimateLag, encodePitch, decodeMessage, newer, PORT, uploadName,
 } from '../karaoke.js';
 
 let fails = 0;
@@ -145,5 +145,11 @@ for (const f of readdirSync(ex).filter((f) => f.endsWith('.txt'))) {
   check('port', PORT === 47321);
 }
 
+// ---- upload names: the same as the TV app's TvFiles.safeName (tests/java/TvFilesTest.java checks the same names)
+{
+  const cases = [['Song 🎤.mp3', 'Song _.mp3'], ['Track ½.mp3', 'Track _.mp3'], ['Beyoncé - Halo.mp3', 'Beyoncé - Halo.mp3'], ['Niño ng Ñ.ogg', 'Niño ng Ñ.ogg'], ['a:b*c.txt', 'a_b_c.txt'], ['C:\\x\\Song 2.mp3', 'Song 2.mp3']];
+  for (const [a, b] of cases) check('upload name ' + JSON.stringify(a), uploadName(a) === b, uploadName(a));
+  check('in a browser (not the TV app) the name is used as it is', uploadName('Song 🎤.mp3', false) === 'Song 🎤.mp3');
+}
 console.log(fails ? `${fails} karaoke unit test(s) FAILED` : 'karaoke unit tests passed');
 process.exitCode = fails ? 1 : 0;

@@ -217,3 +217,10 @@ export function decodeMessage(text) {
 }
 // Pitch frames can arrive late or twice over Wi-Fi: keep only ones newer than the last (sequence numbers wrap).
 export function newer(seq, last) { if (last == null) return true; const d = (seq - last) >>> 0; return d !== 0 && d < 0x80000000; }
+
+// ---- The name the TV app stores an upload under (TvFiles.safeName in Java: anything but letters, decimal digits and
+// " ._()'&,!+-" becomes _, one _ per character, emoji included), so a chart's #MP3 / #AUDIO name finds its file.
+export function uploadName(name, native = true) {
+  const base = String(name || '').trim().replace(/^.*[\\/]/, '');
+  return native ? base.replace(/[^\p{L}\p{Nd} ._()'&,!+-]/gu, '_') : base;
+}

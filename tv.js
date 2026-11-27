@@ -5,7 +5,7 @@
 // duets or groups turn pitch bars off and just sing.
 // Songs: songs/index.json next to this page ([{"txt": "songs/x.txt", "audio": "songs/x.mp3"}]; "audio" defaults to
 // the chart's #MP3 next to it), plus three warm-ups from examples/ (no audio; they run on a clock).
-import { parseUltraStar, Scorer, LEVELS, foldTo, hzToMidi, rating, lyricView, decodeMessage, newer, estimateLag } from './karaoke.js';
+import { parseUltraStar, Scorer, LEVELS, foldTo, hzToMidi, rating, lyricView, decodeMessage, newer, estimateLag, uploadName } from './karaoke.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -111,10 +111,7 @@ async function getText(url) {
 }
 // The TV app stores uploads under a safe name (TvFiles.safeName: odd characters become _); the chart's #MP3 line
 // still has the original name, so the audio is looked up the same way.
-function audioName(mp3) {
-  const base = mp3.trim().replace(/^.*[\\/]/, '');
-  return NATIVE ? base.replace(/[^\p{L}\p{N} ._()'&,!+-]/gu, '_') : base;
-}
+function audioName(mp3) { return uploadName(mp3, NATIVE); }
 async function loadLibrary() {
   const entries = [];
   try {
@@ -127,7 +124,7 @@ async function loadLibrary() {
     try {
       const text = await getText(e.txt);
       const c = parseUltraStar(text);
-      const mp3 = (/^#MP3:(.*)$/mi.exec(text) || [])[1];
+      const mp3 = (/^#AUDIO:(.*)$/mi.exec(text) || /^#MP3:(.*)$/mi.exec(text) || [])[1]; // #AUDIO: UltraStar format 1.x
       const audio = e.warmup ? null : e.audio || (mp3 && mp3.trim() ? new URL(encodeURIComponent(audioName(mp3)), new URL(e.txt, location.href)).href : null);
       songs.push({ txt: e.txt, text, audio, title: c.title || e.txt.replace(/^.*\//, ''), artist: c.artist || '', warmup: !!e.warmup, parts: c.parts });
     } catch (_) { /* a bad chart is left out */ }
@@ -169,7 +166,9 @@ function show(screen) {
   S.screen = screen;
   for (const id of ['library', 'sing', 'done']) $(id).hidden = id !== screen;
   document.body.classList.toggle('pitch-off', !S.pitchOn);
-  const first = screen === 'library' ? (document.querySelector('#songs button[data-i="' + (S.song ? S.songs.indexOf(S.song) : 0) + '"]') || $('pitch')) : screen === 'done' ? $('again') : null;
+  // the song he last sang, found by its file (after songs are added the list holds new objects for the same songs)
+  const at = S.song ? S.songs.findIndex((x) => x === S.song || x.txt === S.song.txt) : 0;
+  const first = screen === 'library' ? (document.querySelector('#songs button[data-i="' + Math.max(0, at) + '"]') || $('pitch')) : screen === 'done' ? $('again') : null;
   if (first) first.focus();
 }
 function start(song) {
@@ -195,13 +194,17 @@ function start(song) {
 // Song time in ms. With audio: its currentTime, moved on smoothly between the element's coarse updates.
 let anchor = { ct: -1, at: 0 };
 function songTime(now) {
-  now = now == null ? performance.now() : now;
+  const real = performance.now();
+  now = now == null ? real : now;
   if (S.clock) return S.paused ? S.clock.base : S.clock.base + (now - S.clock.at);
   if (!S.song || !S.song.audio) return 0;
   const ct = audio.currentTime * 1000;
   // paused or not really playing yet (loading, just resumed): the element's time as it is, no running ahead
-  if (audio.paused || audio.readyState < 3 || ct !== anchor.ct) anchor = { ct, at: now };
-  return ct + Math.max(-250, Math.min(250, now - anchor.at));
+  // (the anchor is always the real present: a pitch sung earlier is placed back from it, below)
+  if (audio.paused || audio.readyState < 3 || ct !== anchor.ct) anchor = { ct, at: real };
+  const t = ct + Math.max(-250, Math.min(250, real - anchor.at));
+  // a moment in the past (a pitch that arrived late in a Wi-Fi burst): that much before now, while the song plays
+  return now < real && !audio.paused ? Math.max(0, t - (real - now)) : t;
 }
 // The song's audio won't play (missing file, a format the TV can't play): lyrics and bars run on the clock instead.
 function noAudio(song) {
@@ -256,7 +259,8 @@ audio.onended = () => { if (S.screen === 'sing') finish(); };
 // Home on the remote, or another app: the song pauses (it would keep playing over the home screen)
 document.addEventListener('visibilitychange', () => { if (document.hidden && S.screen === 'sing' && !S.paused) togglePause(); });
 $('again').onclick = () => start(S.song);
-function toLibrary() { if (S.reload) { S.reload = false; loadLibrary().then(() => show('library')); } drawLibrary(); show('library'); }
+// (songs added meanwhile: the list reloads, and shows again only if he is still on it, not over a song he just started)
+function toLibrary() { if (S.reload) { S.reload = false; loadLibrary().then(() => { if (S.screen === 'library') show('library'); }); } drawLibrary(); show('library'); }
 $('back').onclick = toLibrary;
 function back() {
   if (S.screen === 'sing') { stopSong(); toLibrary(); return true; }
@@ -268,6 +272,8 @@ function back() {
 // Fire TV remotes send arrow keys, Enter (OK), Back (handled by the app: SHTV.back) and media keys.
 document.addEventListener('keydown', (e) => {
   const k = e.key;
+  // OK held a little long repeats: one press starts a song, it must not then pause and resume it
+  if (e.repeat && (k === 'Enter' || k === ' ' || /^Media/.test(k))) { e.preventDefault(); return; }
   if (S.screen === 'sing') {
     if (k === 'Enter' || k === ' ' || k === 'MediaPlayPause' || k === 'MediaPlay' || k === 'MediaPause') { e.preventDefault(); togglePause(); }
     else if (k === 'Escape' || k === 'Backspace' || k === 'GoBack' || k === 'BrowserBack') { e.preventDefault(); back(); }

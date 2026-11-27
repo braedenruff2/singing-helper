@@ -9,6 +9,8 @@ public class TvFilesTest {
         check("folders in a name are dropped", "song.txt".equals(TvFiles.safeName("../../etc/song.txt")) && "song.mp3".equals(TvFiles.safeName("C:\\Users\\x\\song.mp3")));
         check("hidden, empty, no-type and other types refused", TvFiles.safeName(".hidden.txt") == null && TvFiles.safeName("") == null && TvFiles.safeName(null) == null
             && TvFiles.safeName(".txt") == null && TvFiles.safeName("run.apk") == null && TvFiles.safeName("page.html") == null && TvFiles.safeName("noext") == null);
+        check("one _ per character, emoji and fractions included (as the page's uploadName)", "Song _.mp3".equals(TvFiles.safeName("Song \uD83C\uDFA4.mp3")) && "Track _.mp3".equals(TvFiles.safeName("Track \u00BD.mp3"))
+            && "Ni\u00F1o ng \u00D1.ogg".equals(TvFiles.safeName("Ni\u00F1o ng \u00D1.ogg")));
         check("odd characters become _", "a_b_c.txt".equals(TvFiles.safeName("a:b*c.txt")) && "x_y.ogg".equals(TvFiles.safeName("x\0y.ogg")));
         StringBuilder longName = new StringBuilder(); for (int i = 0; i < 130; i++) longName.append('a');
         check("very long names refused", TvFiles.safeName(longName + ".txt") == null);
