@@ -5,7 +5,7 @@ import { parseUltraStar } from './lyrics.js';
 // ---- UltraStar .txt, kept as written ------------------------------------------------------------------------
 // parseUltraStar (lyrics.js) turns a chart into timed notes for singing; this keeps every header and event in order
 // so a chart can be saved again unchanged (or with an edited header, e.g. #GAP after syncing).
-// { head: [[KEY, value], ...], parts: [{ p: null|1|2, events: [{kind, beat, len, pitch, text} | {kind: '-', beat, next}] }] }
+// { head: [[KEY, value], ...], parts: [{ p: null|1|2, events: [{kind, beat, len, pitch, text} | {kind: '-', beat, next} | {kind: 'B', beat, bpm}] }] }
 const NOTE = /^([:*FRG])\s+(-?\d+)\s+(\d+)\s+(-?\d+)(?:\s(.*))?$/; // one space or tab before the text, like lyrics.js
 export function readUltraStar(text) {
   const head = [];
@@ -27,6 +27,8 @@ export function readUltraStar(text) {
     if (line.startsWith('E')) break;
     const m = NOTE.exec(line);
     if (m) { cur.events.push({ kind: m[1], beat: +m[2], len: +m[3], pitch: +m[4], text: m[5] == null ? '' : m[5] }); continue; }
+    const bc = /^B\s+(-?\d+)\s+(\S+)\s*$/.exec(line); // a mid-song tempo change, kept as written
+    if (bc) { cur.events.push({ kind: 'B', beat: +bc[1], bpm: bc[2] }); continue; }
     const b = /^-\s+(-?\d+)(?:\s+(-?\d+))?/.exec(line);
     if (b) cur.events.push(b[2] != null ? { kind: '-', beat: +b[1], next: +b[2] } : { kind: '-', beat: +b[1] });
   }
@@ -47,6 +49,7 @@ export function writeUltraStar(raw) {
     if (part.p != null) out.push('P' + part.p);
     for (const e of part.events) {
       if (e.kind === '-') out.push('- ' + e.beat + (e.next != null ? ' ' + e.next : ''));
+      else if (e.kind === 'B') out.push('B ' + e.beat + ' ' + e.bpm);
       else out.push(e.kind + ' ' + e.beat + ' ' + e.len + ' ' + e.pitch + ' ' + (e.text || ''));
     }
   }
@@ -206,6 +209,20 @@ export function lyricView(lines, t) {
 
 // Duets: the lyric lines of every part, in time order, each with its part (1, 2, ...), so both singers see their words
 // (scoring and pitch bars stay on the chart's own part). A one-part chart gives its lines with part 1.
+// The words early or late against the song's audio (a chart made for another recording): move every note, lyric line and
+// word by ms, each object once (duetLines' copies share their words with the chart's lines). Returns the chart.
+export const OFFSET_STEP = 50, OFFSET_MAX = 3000;
+export function shiftChart(chart, lines, ms) {
+  ms = +ms || 0;
+  if (!ms || !chart) return chart;
+  const seen = new Set();
+  const move = (o, ...keys) => { if (!o || seen.has(o)) return; seen.add(o); for (const k of keys) if (typeof o[k] === 'number') o[k] += ms; };
+  for (const n of chart.notes || []) move(n, 't');
+  for (const l of [...(chart.lines || []), ...(lines || [])]) { move(l, 't', 'end'); for (const w of l.words || []) move(w, 't', 'end'); }
+  return chart;
+}
+export function nextOffset(cur, dir) { return Math.max(-OFFSET_MAX, Math.min(OFFSET_MAX, Math.round(((+cur || 0) + dir * OFFSET_STEP) / OFFSET_STEP) * OFFSET_STEP)); }
+
 export function duetLines(text, chart) {
   const tag = (ls, p) => ls.map((l) => Object.assign({}, l, { part: p }));
   let all = tag(chart.lines || [], chart.part || 1);

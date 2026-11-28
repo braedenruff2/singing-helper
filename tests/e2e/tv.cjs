@@ -97,9 +97,28 @@ test('tv', async ({ newPage, url, check, shot, sleep }) => {
   check('OK pauses the song (time stands still, "Paused" shown)', Math.abs(t2 - t1) < 30 && await p.isVisible('#paused'), t1 + ' -> ' + t2);
   await p.keyboard.press('Enter'); await sleep(300);
   check('OK again carries on', await p.evaluate(() => !document.getElementById('audio').paused) && !(await p.isVisible('#paused')));
+  // words early or late: right / left while singing move them 50 ms a press, shown briefly and kept for this song
+  const first0 = await p.evaluate(() => SHTV.state().first);
+  for (let i = 0; i < 3; i++) await p.keyboard.press('ArrowRight');
+  let st = await p.evaluate(() => SHTV.state());
+  check('right x3: words 150 ms later', st.offset === 150 && Math.abs(st.first - first0 - 150) < 1e-6 && st.screen === 'sing' && !st.paused, JSON.stringify(st));
+  check('...said on screen', await p.isVisible('#offs') && /150 ms later/.test(await p.textContent('#offs')), await p.textContent('#offs'));
+  await sleep(2700);
+  check('...then the note goes', !(await p.isVisible('#offs')));
+  await p.keyboard.press('ArrowLeft');
+  check('left: 100 ms', (await p.evaluate(() => SHTV.state().offset)) === 100);
   const handled = await p.evaluate(() => SHTV.back());
   check('Back (the Android button) stops it and returns to the list', handled && await p.evaluate(() => document.getElementById('audio').paused && SHTV.state().screen === 'library'));
   check('Back on the list is left to the app (it leaves)', !(await p.evaluate(() => SHTV.back())));
+  await p.click('#songs button[data-i="1"]'); await p.waitForSelector('#sing:not([hidden])');
+  st = await p.evaluate(() => SHTV.state());
+  check('the same song again starts with its words shift', st.offset === 100 && Math.abs(st.first - first0 - 100) < 1e-6, JSON.stringify(st));
+  await p.keyboard.press('ArrowLeft'); await p.keyboard.press('ArrowLeft');
+  check('back to 0: "as the chart has them"', (await p.evaluate(() => SHTV.state().offset)) === 0 && /as the chart has them/.test(await p.textContent('#offs')));
+  await p.evaluate(() => SHTV.back());
+  await p.click('#songs button[data-i="0"]'); await p.waitForSelector('#sing:not([hidden])');
+  check('another song keeps its own (none)', (await p.evaluate(() => SHTV.state().offset)) === 0);
+  await p.evaluate(() => SHTV.back()); await p.waitForSelector('#library:not([hidden])');
 
   // ---- the TV app leaves the screen (Home): the song pauses
   await p.click('#songs button[data-i="1"]'); await p.waitForSelector('#sing:not([hidden])'); await sleep(600);

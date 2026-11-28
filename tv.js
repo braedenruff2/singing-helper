@@ -5,7 +5,7 @@
 // duets or groups turn pitch bars off and just sing.
 // Songs: songs/index.json next to this page ([{"txt": "songs/x.txt", "audio": "songs/x.mp3"}]; "audio" defaults to
 // the chart's #MP3 next to it), plus three warm-ups from examples/ (no audio; they run on a clock).
-import { parseUltraStar, Scorer, LEVELS, foldTo, hzToMidi, rating, lyricView, duetLines, decodeMessage, newer, estimateLag, uploadName } from './karaoke.js';
+import { parseUltraStar, Scorer, LEVELS, foldTo, hzToMidi, rating, lyricView, duetLines, decodeMessage, newer, estimateLag, uploadName, shiftChart, nextOffset } from './karaoke.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -55,7 +55,7 @@ window.SHTV = {
   problem(text) { S.problem = String(text); status(); },
   // the TV app is leaving the screen (Home, another app): pause the song
   hide() { if (S.screen === 'sing' && !S.paused) togglePause(); },
-  state: () => ({ screen: S.screen, points: S.scorer ? S.scorer.points : 0, song: S.song && S.song.title, pitchOn: S.pitchOn, t: songTime(), paused: S.paused }),
+  state: () => ({ screen: S.screen, points: S.scorer ? S.scorer.points : 0, song: S.song && S.song.title, pitchOn: S.pitchOn, t: songTime(), paused: S.paused, offset: S.offset || 0, first: S.chart && S.chart.notes[0] ? S.chart.notes[0].t : null }),
 };
 // When the phone says it was sung, on this page's clock: arrival minus the smallest delay seen lately (the packets that
 // came straight through), so a burst of late packets still lands at the moments they were sung.
@@ -183,7 +183,11 @@ function start(song) {
   S.song = song;
   S.chart = parseUltraStar(song.text);
   S.lines = duetLines(song.text, S.chart); // a duet shows both singers' words
+  // words early or late against this song's audio: the shift he chose last time (left / right on the remote while singing)
+  S.offset = store.get('offs_' + song.txt, 0) || 0;
+  shiftChart(S.chart, S.lines, S.offset);
   S.scorer = new Scorer(S.chart, { tolerance: LEVELS[S.level] || LEVELS.normal });
+  $('offs').hidden = true;
   S.trail = []; S.raw = []; S.paused = false; S.ended = false; $('paused').hidden = true;
   $('now').textContent = song.title + (song.artist ? ' · ' + song.artist : '');
   $('score').textContent = '0';
@@ -232,6 +236,19 @@ function togglePause() {
   if (S.clock) { if (S.paused) S.clock = { base: S.clock.base + (performance.now() - S.clock.at), at: 0 }; else S.clock.at = performance.now(); }
   else if (S.paused) audio.pause(); else audio.play().catch(() => {});
   S.scorer.last = null; // no credit for the paused time
+}
+// Left / right while singing: the words (and pitch bars) come earlier / later, 50 ms a press, kept for this song.
+let offsTimer = null;
+function moveWords(dir) {
+  if (S.screen !== 'sing' || !S.chart) return;
+  const to = nextOffset(S.offset, dir), d = to - (S.offset || 0);
+  if (!d) return;
+  shiftChart(S.chart, S.lines, d);
+  S.offset = to; store.set('offs_' + S.song.txt, to);
+  if (S.scorer) S.scorer.k = 0; // notes moved: find the current one again
+  const el = $('offs');
+  el.textContent = to ? 'Words ' + Math.abs(to) + ' ms ' + (to > 0 ? 'later' : 'earlier') + ' (kept for this song)' : 'Words as the chart has them';
+  el.hidden = false; clearTimeout(offsTimer); offsTimer = setTimeout(() => { el.hidden = true; }, 2500);
 }
 function stopSong() { audio.pause(); S.clock = null; }
 function finish() {
@@ -287,6 +304,7 @@ document.addEventListener('keydown', (e) => {
   if (e.repeat && (k === 'Enter' || k === ' ' || /^Media/.test(k))) { e.preventDefault(); return; }
   if (S.screen === 'sing') {
     if (k === 'Enter' || k === ' ' || k === 'MediaPlayPause' || k === 'MediaPlay' || k === 'MediaPause') { e.preventDefault(); togglePause(); }
+    else if (k === 'ArrowLeft' || k === 'ArrowRight') { e.preventDefault(); moveWords(k === 'ArrowRight' ? 1 : -1); }
     else if (k === 'Escape' || k === 'Backspace' || k === 'GoBack' || k === 'BrowserBack') { e.preventDefault(); back(); }
     return;
   }

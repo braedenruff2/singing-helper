@@ -91,6 +91,25 @@ const check = (label, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${la
 }
 
 {
+  // mid-song tempo changes ("B beat bpm"): times and lengths follow the new BPM from that beat on
+  const c = parseUltraStar('#BPM:150\n#GAP:500\n: 0 4 0 a\n: 8 4 2 b\nB 16 300\n- 14\n: 16 4 4 c\n: 24 8 5 d\nB 32 75\n: 40 2 7 e\nE');
+  const m1 = 60000 / 600, m2 = 60000 / 1200, m3 = 60000 / 300;
+  const want = [500, 500 + 8 * m1, 500 + 16 * m1, 500 + 16 * m1 + 8 * m2, 500 + 16 * m1 + 16 * m2 + 8 * m3];
+  check('UltraStar B lines: note times', c.notes.every((n, i) => Math.abs(n.t - want[i]) < 1e-6), c.notes.map((n) => n.t).join(','));
+  check('UltraStar B lines: lengths at the tempo of their beat', Math.abs(c.notes[0].dur - 4 * m1) < 1e-6 && Math.abs(c.notes[3].dur - 8 * m2) < 1e-6 && Math.abs(c.notes[4].dur - 2 * m3) < 1e-6);
+  check('UltraStar B lines: the break before the change stays at its beat', c.lines.length === 2 && c.lines[1].text === 'cde', JSON.stringify(c.lines.map((l) => l.text)));
+  const span = parseUltraStar('#BPM:150\n: 0 8 0 long\nB 4 300\nE');
+  check('UltraStar B lines: a note across a change', Math.abs(span.notes[0].dur - (4 * m1 + 4 * m2)) < 1e-6, span.notes[0].dur);
+  const same = parseUltraStar('#BPM:150\n#GAP:0\n: 0 4 0 a\n: 8 4 0 b\nE');
+  check('UltraStar: no B lines, unchanged', same.notes[1].t === 8 * m1);
+  const at0 = parseUltraStar('#BPM:150\nB 0 300\n: 8 4 0 a\nE');
+  check('UltraStar B lines: a change at beat 0 replaces the header BPM', Math.abs(at0.notes[0].t - 8 * m2) < 1e-6);
+  const bad = parseUltraStar('#BPM:150\nB 4 0\nB x 100\n: 8 4 0 a\nE');
+  check('UltraStar B lines: a zero or broken one is ignored', bad.notes[0].t === 8 * m1);
+  const rel = parseUltraStar('#BPM:150\n#RELATIVE:yes\n: 0 2 0 a\n- 8 8\nB 0 300\n: 4 2 0 b\nE');
+  check('UltraStar B lines in relative mode count from the line', Math.abs(rel.notes[1].t - (8 * m1 + 4 * m2)) < 1e-6, rel.notes[1].t);
+}
+{
   // relative mode: beats restart after each break; "- 8 12" = the next line starts 12 beats after the last one did
   const rel = parseUltraStar('#BPM:150\n#GAP:0\n#RELATIVE:yes\n: 0 2 0 a\n: 4 2 2 b\n- 8 12\n: 0 2 4 c\n: 4 2 5 d\n- 6\n: 1 2 7 e\nE');
   const ms = 60000 / 600;

@@ -124,7 +124,8 @@ it to the TV. No screen mirroring (it adds about a second of delay).
 
 - **The TV app** `dist/SingingHelperTV.apk` (sideload it on the Fire TV; built by `tools/build-tv-apk.sh` from
   `android-tv/`, same signing key as the phone app). It shows `tv.html` full screen: the song list (songs you add,
-  plus three warm-ups), driven by the remote (up/down, OK to sing; during a song OK pauses, Back stops). While
+  plus three warm-ups), driven by the remote (up/down, OK to sing; during a song OK pauses, Back stops, and left/right move the words
+  50 ms earlier/later when a chart doesn't match his recording: kept per song, `shiftChart` in karaoke.js). While
   singing: big lyrics with a gold wipe and countdown dots before a line after a long gap, a progress line, and with
   **Pitch bars: On** the song's notes scrolling past (gold = golden notes, green once sung right) with your pitch as
   dots (white on the note, red off it) and a karaoke-style score out of 10,000 (golden notes count double; any octave
@@ -151,7 +152,8 @@ it to the TV. No screen mirroring (it adds about a second of delay).
   line (from #P1/#P2 or #DUETSINGERP1/P2); pitch bars and the score follow singer 1.
 - **Songs**: UltraStar `.txt` files are read and can be written back exactly (`karaoke.js`: `readUltraStar` /
   `writeUltraStar`, and `chartToUltraStar` for a timed chart), so later a synced offset or a chart made from his own
-  audio can be saved for the TV.
+  audio can be saved for the TV. Mid-song tempo changes (`B beat bpm` lines, in older charts) are kept on writing and
+  followed for the timing (`lyrics.js` parseUltraStar; tests: `unit`, `karaoke`).
 - **Without the TV app**: `tv.html` also opens in the TV's Silk browser from a web server (lyrics, songs from
   `songs/index.json`), but pitch bars need the TV app (a browser can't receive the phone's pitch), unless a home
   server relays it: `tv.html?ws=ws://<server>:<port>` takes the same messages over a WebSocket. Hosting the app, songs

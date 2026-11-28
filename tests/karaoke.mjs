@@ -3,7 +3,7 @@
 //   node tests/karaoke.mjs
 import { readFileSync, readdirSync } from 'fs';
 import {
-  readUltraStar, writeUltraStar, headValue, setHead, chartToUltraStar, parseUltraStar,
+  readUltraStar, writeUltraStar, headValue, setHead, chartToUltraStar, parseUltraStar, shiftChart, nextOffset,
   Scorer, LEVELS, foldTo, hzToMidi, rating, lyricView, duetLines, estimateLag, encodePitch, decodeMessage, newer, PORT, uploadName,
 } from '../karaoke.js';
 
@@ -193,6 +193,29 @@ for (const f of readdirSync(ex).filter((f) => f.endsWith('.txt'))) {
   check('bad or unknown messages are ignored', bad.every((b) => decodeMessage(b) === null));
   check('newer: in order, duplicates and late ones dropped, wraps at 2^32', newer(5, 4) && !newer(4, 4) && !newer(3, 4) && newer(0, 0xffffffff) && newer(1, null));
   check('port', PORT === 47321);
+}
+
+// ---- mid-song tempo changes survive a read + write unchanged (B lines)
+{
+  const txt = '#TITLE:T\n#BPM:150\n#GAP:0\n: 0 4 0 a\nB 16 300,5\n- 14\n: 16 4 4 c\nE\n';
+  const raw = readUltraStar(txt);
+  check('B line read as an event', raw.parts[0].events.some((e) => e.kind === 'B' && e.beat === 16 && e.bpm === '300,5'));
+  check('B line written back exactly', writeUltraStar(raw) === txt, writeUltraStar(raw));
+  const c = parseUltraStar(writeUltraStar(raw));
+  check('and the timing still follows it', Math.abs(c.notes[1].t - 16 * 100) < 1e-6, c.notes[1].t);
+}
+
+// ---- words early / late on the TV: every note, line and word moves once (duet copies share words)
+{
+  const txt = '#BPM:300\n#GAP:500\nP1\n: 0 8 0 Do \n- 10\n: 12 8 2 re\nP2\n: 4 8 4 mi\nE\n';
+  const c = parseUltraStar(txt), lines = duetLines(txt, c);
+  const before = JSON.parse(JSON.stringify({ n: c.notes, l: lines }));
+  shiftChart(c, lines, 150);
+  check('shift: notes move by the offset', c.notes.every((n, i) => n.t === before.n[i].t + 150 && n.dur === before.n[i].dur));
+  check('shift: lines and their words move once (not twice through the shared words)', lines.every((l, i) => l.t === before.l[i].t + 150 && l.end === before.l[i].end + 150 && l.words.every((w, j) => w.t === before.l[i].words[j].t + 150)), JSON.stringify(lines.map((l) => l.words.map((w) => w.t))));
+  shiftChart(c, lines, -150);
+  check('shift back: as read', JSON.stringify(c.notes) === JSON.stringify(before.n));
+  check('nextOffset: 50 ms steps, kept within 3 s, rounding odd values', nextOffset(0, 1) === 50 && nextOffset(50, -1) === 0 && nextOffset(2990, 1) === 3000 && nextOffset(3000, 1) === 3000 && nextOffset(-3000, -1) === -3000 && nextOffset(120, 1) === 150 && nextOffset(undefined, -1) === -50);
 }
 
 // ---- upload names: the same as the TV app's TvFiles.safeName (tests/java/TvFilesTest.java checks the same names)

@@ -89,6 +89,7 @@ export function parseUltraStar(text, opts = {}) {
   const breaks = [];
   let rel = 0; // #RELATIVE:yes charts count beats from the start of each line
   let part = 1; // duet charts: P1 / P2 sections
+  const tempo = []; // mid-song BPM changes (B lines) of the chosen part
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/^﻿/, '');
     if (line.startsWith('#')) {
@@ -106,6 +107,9 @@ export function parseUltraStar(text, opts = {}) {
       notes.push({ beat: +m[2] + rel, len: +m[3], pitch: +m[4], text: m[5], golden: m[1] === '*' || m[1] === 'G', free: m[1] === 'F' || m[1] === 'R' || m[1] === 'G', rap: m[1] === 'R' || m[1] === 'G' }); // G = golden rap: pitch doesn't matter
       continue;
     }
+    // "B beat bpm": the tempo changes from that beat on (older charts and some live recordings)
+    const bc = /^B\s+(-?\d+)\s+([\d.,]+)\s*$/.exec(line);
+    if (bc) { const v = parseFloat(bc[2].replace(',', '.')); if (v > 0) tempo.push({ beat: +bc[1] + rel, bpm: v }); continue; }
     const b = /^-\s+(-?\d+)(?:\s+(-?\d+))?/.exec(line);
     if (b) {
       breaks.push(+b[1] + rel);
@@ -121,11 +125,22 @@ export function parseUltraStar(text, opts = {}) {
   }
   const gap = parseFloat((head.GAP || '0').replace(',', '.'));
   const msPerBeat = 60000 / (bpm * 4); // UltraStar beats are quarter-beats
+  // beat -> ms from the GAP, through any tempo changes (each B line sets the BPM from its beat on)
+  tempo.sort((a, b) => a.beat - b.beat);
+  const at = (x) => {
+    let t = gap, from = 0, ms = msPerBeat;
+    for (const c of tempo) {
+      if (c.beat <= from) { ms = 60000 / (c.bpm * 4); continue; } // at the start (or the same beat as the last change)
+      if (c.beat > x) break;
+      t += (c.beat - from) * ms; from = c.beat; ms = 60000 / (c.bpm * 4);
+    }
+    return t + (x - from) * ms;
+  };
   notes.sort((a, b) => a.beat - b.beat);
   const out = notes.map((n, i) => ({
     i,
-    t: gap + n.beat * msPerBeat,
-    dur: n.len * msPerBeat,
+    t: at(n.beat),
+    dur: at(n.beat + n.len) - at(n.beat),
     midi: 60 + n.pitch, // pitch 0 = C4
     text: n.text.replace(/~/g, ''), golden: n.golden, free: n.free, ...(n.rap ? { rap: true } : {}), // '~' = held note
   }));
@@ -133,7 +148,7 @@ export function parseUltraStar(text, opts = {}) {
   const lines = [];
   let cur = [];
   let bi = 0;
-  const bts = breaks.slice().sort((a, b) => a - b).map((b) => gap + b * msPerBeat);
+  const bts = breaks.slice().sort((a, b) => a - b).map(at);
   for (const n of out) {
     while (bi < bts.length && n.t >= bts[bi]) { if (cur.length) lines.push(cur); cur = []; bi++; }
     cur.push(n);

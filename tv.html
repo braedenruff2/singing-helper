@@ -40,6 +40,8 @@
   #dots { color: var(--gold); letter-spacing: .4em; min-height: 1.2em; }
   #progress { height: .5vh; background: #1d2647; border-radius: 1em; overflow: hidden; }
   #progress i { display: block; height: 100%; width: 0; background: var(--accent); }
+  #offs { position: absolute; left: 50%; top: 12%; transform: translateX(-50%); padding: .3em .8em; border-radius: .4em; background: rgba(5, 8, 20, .85); font-size: 1.6em; font-weight: 700; }
+  #paused small { font-size: .55em; font-weight: 400; }
   #paused { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5, 8, 20, .7); font-size: 2.4em; font-weight: 700; }
   #done { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: .6em; }
   #final { font-size: 4em; font-weight: 800; margin: 0; font-variant-numeric: tabular-nums; }
@@ -59,7 +61,7 @@
   </div>
   <ol id="songs" aria-label="Songs"></ol>
   <p class="meta" id="add"></p>
-  <p class="meta" id="help">Up/down to choose, OK to sing. During a song: OK pauses, Back stops.</p>
+  <p class="meta" id="help">Up/down to choose, OK to sing. During a song: OK pauses, Back stops, left/right if the words are early or late.</p>
 </section>
 <section id="sing" hidden aria-label="Singing">
   <div id="sing-top"><span id="now"></span><span id="score" aria-label="Score">0</span></div>
@@ -67,7 +69,8 @@
   <div id="lyrics" aria-live="off"><div id="dots"></div><p id="line"></p><p id="next"></p></div>
   <div id="progress"><i></i></div>
   <audio id="audio" preload="auto"></audio>
-  <div id="paused" hidden>Paused: OK to carry on, Back to stop</div>
+  <div id="paused" hidden><p>Paused: OK to carry on, Back to stop<br><small>Words early or late? ◀ ▶ moves them (kept for this song)</small></p></div>
+  <div id="offs" hidden role="status"></div>
 </section>
 <section id="done" hidden aria-label="Score">
   <h2 id="done-title"></h2>
