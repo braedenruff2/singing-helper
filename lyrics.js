@@ -103,7 +103,7 @@ export function parseUltraStar(text, opts = {}) {
     if (part !== want) continue;
     const m = /^([:*FRG])\s+(-?\d+)\s+(\d+)\s+(-?\d+)\s?(.*)$/.exec(line);
     if (m) {
-      notes.push({ beat: +m[2] + rel, len: +m[3], pitch: +m[4], text: m[5], golden: m[1] === '*' || m[1] === 'G', free: m[1] === 'F' || m[1] === 'R' });
+      notes.push({ beat: +m[2] + rel, len: +m[3], pitch: +m[4], text: m[5], golden: m[1] === '*' || m[1] === 'G', free: m[1] === 'F' || m[1] === 'R' || m[1] === 'G', rap: m[1] === 'R' || m[1] === 'G' }); // G = golden rap: pitch doesn't matter
       continue;
     }
     const b = /^-\s+(-?\d+)(?:\s+(-?\d+))?/.exec(line);
@@ -127,7 +127,7 @@ export function parseUltraStar(text, opts = {}) {
     t: gap + n.beat * msPerBeat,
     dur: n.len * msPerBeat,
     midi: 60 + n.pitch, // pitch 0 = C4
-    text: n.text.replace(/~/g, ''), golden: n.golden, free: n.free, // '~' = held note
+    text: n.text.replace(/~/g, ''), golden: n.golden, free: n.free, ...(n.rap ? { rap: true } : {}), // '~' = held note
   }));
   // group into lyric lines using the "-" line breaks
   const lines = [];

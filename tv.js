@@ -5,7 +5,7 @@
 // duets or groups turn pitch bars off and just sing.
 // Songs: songs/index.json next to this page ([{"txt": "songs/x.txt", "audio": "songs/x.mp3"}]; "audio" defaults to
 // the chart's #MP3 next to it), plus three warm-ups from examples/ (no audio; they run on a clock).
-import { parseUltraStar, Scorer, LEVELS, foldTo, hzToMidi, rating, lyricView, decodeMessage, newer, estimateLag, uploadName } from './karaoke.js';
+import { parseUltraStar, Scorer, LEVELS, foldTo, hzToMidi, rating, lyricView, duetLines, decodeMessage, newer, estimateLag, uploadName } from './karaoke.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -182,6 +182,7 @@ function show(screen) {
 function start(song) {
   S.song = song;
   S.chart = parseUltraStar(song.text);
+  S.lines = duetLines(song.text, S.chart); // a duet shows both singers' words
   S.scorer = new Scorer(S.chart, { tolerance: LEVELS[S.level] || LEVELS.normal });
   S.trail = []; S.raw = []; S.paused = false; S.ended = false; $('paused').hidden = true;
   $('now').textContent = song.title + (song.artist ? ' · ' + song.artist : '');
@@ -318,13 +319,18 @@ function frame() {
   const notes = S.chart.notes, last = notes[notes.length - 1];
   if (!S.ended && (!S.song.audio || S.clock) && t > last.t + last.dur + 1500) { finish(); return; } // on the clock (no audio, or it wouldn't play)
   // lyrics
-  const v = lyricView(S.chart.lines, t);
+  const lines = S.lines || S.chart.lines;
+  const v = lyricView(lines, t);
   const line = $('line');
   if (line.dataset.cur !== String(v.cur)) {
     line.dataset.cur = String(v.cur);
     line.innerHTML = '';
     for (const w of v.words) { const s = document.createElement('span'); s.textContent = w.text; line.appendChild(s); }
-    $('next').textContent = v.next >= 0 ? S.chart.lines[v.next].text : '';
+    const duet = (S.chart.parts || 1) > 1, nx = v.next >= 0 ? lines[v.next] : null, who = (l) => (duet && l ? (S.chart.partNames[l.part - 1] || 'Singer ' + l.part) + ': ' : '');
+    line.dataset.part = v.cur >= 0 && duet ? String(lines[v.cur].part) : '';
+    line.title = v.cur >= 0 ? who(lines[v.cur]).replace(/: $/, '') : '';
+    $('next').dataset.part = nx && duet ? String(nx.part) : '';
+    $('next').textContent = nx ? who(nx) + nx.text : '';
   }
   Array.from(line.children).forEach((s, i) => { const f = v.words[i] ? v.words[i].frac : 0; s.style.setProperty('--p', (f * 100).toFixed(1) + '%'); });
   $('dots').textContent = v.countdown > 0 ? '•'.repeat(Math.ceil(v.countdown * 3)) : '';

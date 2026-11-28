@@ -4,7 +4,7 @@
 import { readFileSync, readdirSync } from 'fs';
 import {
   readUltraStar, writeUltraStar, headValue, setHead, chartToUltraStar, parseUltraStar,
-  Scorer, LEVELS, foldTo, hzToMidi, rating, lyricView, estimateLag, encodePitch, decodeMessage, newer, PORT, uploadName,
+  Scorer, LEVELS, foldTo, hzToMidi, rating, lyricView, duetLines, estimateLag, encodePitch, decodeMessage, newer, PORT, uploadName,
 } from '../karaoke.js';
 
 let fails = 0;
@@ -57,17 +57,39 @@ for (const f of readdirSync(ex).filter((f) => f.endsWith('.txt'))) {
   check('foldTo moves a pitch into the target octave', foldTo(48, 60) === 60 && foldTo(73, 60) === 61 && foldTo(66, 60) === 54);
   check('hzToMidi(440) = 69, 261.63 Hz ~ 60', hzToMidi(440) === 69 && Math.abs(hzToMidi(261.63) - 60) < 0.01);
   const chart = { notes: [{ t: 1000, dur: 1000, midi: 60 }, { t: 2000, dur: 1000, midi: 64, golden: true }, { t: 3000, dur: 500, midi: 62, free: true }] };
+  // a frame's pitch is what was sung in the time since the frame before (t - step, t], so a note ending at 2000 is still
+  // being sung in the frame at t = 2000
   const run = (sc, fn, from = 0, to = 4000, step = 20) => { for (let t = from; t <= to; t += step) sc.frame(t, fn(t)); return sc; };
-  const exact = run(new Scorer(chart), (t) => (t < 2000 ? 60 : t < 3000 ? 64 : 50));
+  const exact = run(new Scorer(chart), (t) => (t <= 2000 ? 60 : t <= 3000 ? 64 : 50));
   check('singing every note right scores 10,000 (freestyle not scored)', exact.points >= 9950, exact.points);
-  const octave = run(new Scorer(chart), (t) => (t < 2000 ? 48 : 76));
+  const octave = run(new Scorer(chart), (t) => (t <= 2000 ? 48 : 76));
   check('an octave lower/higher counts (any voice fits)', octave.points >= 9950, octave.points);
   const nofold = run(new Scorer(chart, { fold: false }), (t) => (t < 2000 ? 48 : 76));
   check('... unless folding is off', nofold.points === 0, nofold.points);
   const silent = run(new Scorer(chart), () => null);
   check('silence scores nothing', silent.points === 0);
-  const half = run(new Scorer(chart), (t) => (t < 2000 ? 60 : null));
+  const half = run(new Scorer(chart), (t) => (t <= 2000 ? 60 : null));
   check('golden notes count double: first note only = 1/3', Math.abs(half.points - 3333) <= 30, half.points);
+  // review 6 (28 Nov): frames that don't line up with the notes (the phone's 21.33 ms) still reach 10000 when every note
+  // is sung right: a note's last ms after its last frame count (before: ~9844 on a 320-note chart)
+  {
+    const many = { notes: Array.from({ length: 320 }, (_, k) => ({ t: 1000 + k * 300, dur: 250, midi: 60 + (k % 5) })) };
+    const at = (t) => { for (const n of many.notes) if (t - 21.33 < n.t + n.dur && t > n.t) return n.midi; return null; };
+    const sc = new Scorer(many); for (let t = 0; t < 1000 + 320 * 300; t += 21.33) sc.frame(t, at(t));
+    check('perfect singing on frames 21.33 ms apart scores 10000', sc.points >= 9990, sc.points);
+    const late = new Scorer(many); for (let t = 0; t < 1000 + 320 * 300; t += 21.33) late.frame(t, at(t - 125)); // half of each note
+    check('... and half of each note sung (125 ms late) scores about half', late.points > 4500 && late.points < 6000, late.points);
+  }
+  // review 3: rap (R) and golden rap (G) count for being heard on time, at any pitch; G double; freestyle F never
+  {
+    const rap = parseUltraStar('#BPM:150\n#GAP:0\n: 0 4 0 sung\nR 8 4 5 rap\nG 16 4 7 gold\nF 24 4 0 free\nE\n');
+    const kinds = rap.notes.map((n) => (n.rap ? (n.golden ? 'G' : 'R') : n.free ? 'F' : ':')).join('');
+    check('UltraStar R / G read as rap (G golden), F freestyle', kinds === ':RGF', kinds);
+    const sc = new Scorer(rap); const span = rap.notes[3].t + rap.notes[3].dur + 100;
+    for (let t = 0; t <= span; t += 20) { const n = rap.notes.find((x) => t - 20 < x.t + x.dur && t > x.t); sc.frame(t, n ? (n.rap ? 47 : n.midi) : null); }
+    check('rapping at a speaking pitch scores full marks on rap notes', sc.points >= 9950, sc.points);
+    const g = rap.notes[2]; check('golden rap is drawn as free (not a pitch bar)', g.free === true && g.golden === true);
+  }
   const rare = new Scorer(chart); rare.frame(1000, 60); rare.frame(1900, 60);
   check('a long gap between frames credits at most 60 ms', rare.hit[0] === 60, rare.hit[0]);
   const flat = run(new Scorer(chart, { tolerance: LEVELS.hard }), (t) => (t < 2000 ? 59.3 : null));
@@ -127,6 +149,34 @@ for (const f of readdirSync(ex).filter((f) => f.endsWith('.txt'))) {
   const v2 = lyricView(lines, lines[1].t + 1);
   check('then the next line', v2.cur === 1 && v2.next === -1 && v2.countdown === 0);
   check('after the last line: nothing', lyricView(lines, 1e9).cur === -1);
+  // review 2 (28 Nov): after a long instrumental the sung line goes 1 s after its last word, the next one shows with
+  // the countdown dots in the last 3 s (before: the old line stayed until the next one's first note, no dots)
+  {
+    const gap = parseUltraStar('#BPM:150\n#GAP:0\n: 0 4 0 one\n- 10\n: 200 4 0 two\nE\n').lines; // 100 ms beats: 0-400, then 20000
+    check('gap: just after the line it stays up', lyricView(gap, 1000).cur === 0, lyricView(gap, 1000).cur);
+    const mid = lyricView(gap, 10000);
+    check('gap: in the instrumental the next line shows, with the dots waiting', mid.cur === 1 && mid.countdown === 1, JSON.stringify(mid));
+    const soon = lyricView(gap, 18500);
+    check('gap: the dots count down in the last 3 s', soon.cur === 1 && soon.countdown > 0 && soon.countdown < 1, soon.countdown);
+    const tight = parseUltraStar('#BPM:150\n#GAP:0\n: 0 4 0 a\n: 4 4 0 b\n- 9\n: 10 4 0 c\nE\n').lines;
+    check('back-to-back lines: unchanged (the line goes when the next starts)', lyricView(tight, 900).cur === 0 && lyricView(tight, 1001).cur === 1);
+  }
+  // review 1: a duet's lyrics on the TV: both singers' lines, in time order, each with its part
+  {
+    const duet = '#BPM:150\n#GAP:0\n#P1:Ann\n#P2:Bob\nP1\n: 0 4 0 Ann1\n- 10\n: 100 4 0 Ann2\nP2\n: 40 4 2 Bob1\nE\n';
+    const c = parseUltraStar(duet), ls = duetLines(duet, c);
+    check('duet: both parts\' lines, in time order', ls.map((l) => l.part + ':' + l.text).join(' ') === '1:Ann1 2:Bob1 1:Ann2', ls.map((l) => l.part + ':' + l.text).join(' '));
+    check('duet: during P2\'s line it is the one shown', lyricView(ls, 4100).cur === 1, lyricView(ls, 4100).cur);
+    check('duet: scoring stays on P1', c.notes.length === 2 && c.partNames[1] === 'Bob');
+    const solo = parseUltraStar('#BPM:150\n: 0 4 0 x\nE\n');
+    check('one-part chart: its own lines, part 1', duetLines('#BPM:150\n: 0 4 0 x\nE\n', solo).every((l) => l.part === 1));
+  }
+  // review 5: tab-separated notes are kept by readUltraStar (as parseUltraStar reads them)
+  {
+    const tab = '#TITLE:t\n#BPM:150\n:\t0\t4\t0\tla\n: 4 4 0\tli\nE\n';
+    const r = readUltraStar(tab);
+    check('tab before the text: notes kept', r.parts[0].events.filter((e) => e.kind === ':').map((e) => e.text).join('|') === 'la|li', JSON.stringify(r.parts[0].events));
+  }
 }
 // ---- messages
 {

@@ -168,6 +168,20 @@ test('tv', async ({ newPage, url, check, shot, sleep }) => {
   await q.evaluate(() => SHTV.problem('The TV couldn\'t listen for the phone: port in use'));
   check('a listening problem is shown', /port in use/.test(await q.textContent('#status')));
 
+  // ---- review 1 (28 Nov): a duet shows both singers' words, the second singer's in its own colour with its name
+  const DUET = '#TITLE:Duet\n#ARTIST:Two\n#BPM:300\n#GAP:300\n#P1:Ann\n#P2:Bob\nP1\n: 0 6 0 Ann-one\n- 40\n: 80 6 0 Ann-two\nP2\n: 40 6 4 Bob-one\nE\n';
+  const d1 = await newPage({ viewport: { width: 960, height: 540 } });
+  await d1.route('**/songs/index.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify([{ txt: 'songs/duet.txt' }]) }));
+  await d1.route('**/songs/duet.txt', (r) => r.fulfill({ contentType: 'text/plain', body: DUET }));
+  await d1.goto(url + 'tv.html'); await d1.waitForSelector('#songs button');
+  await d1.click('#songs button[data-i="0"]'); await d1.waitForSelector('#sing:not([hidden])');
+  await d1.waitForFunction(() => /Ann-one/.test(document.querySelector('#line').textContent));
+  check('duet: the next line names the second singer', /Bob: Bob-one/.test(await d1.textContent('#next')), await d1.textContent('#next'));
+  await d1.waitForFunction(() => /Bob-one/.test(document.querySelector('#line').textContent), null, { timeout: 5000 });
+  check('duet: the second singer\'s line shows, in its own colour', (await d1.getAttribute('#line', 'data-part')) === '2');
+  await d1.waitForFunction(() => /Ann-two/.test(document.querySelector('#line').textContent), null, { timeout: 5000 });
+  check('duet: back to the first singer', (await d1.getAttribute('#line', 'data-part')) === '1');
+
   // ---- the pitch reaches the TV 200 ms later than Mic delay allows: the score screen offers the delay that fits
   const SCALE = '#TITLE:Scale\n#ARTIST:Tester\n#BPM:300\n#GAP:500\n' + [0, 2, 4, 5, 7, 9, 11, 12, 11, 9, 7, 5, 4, 2, 0].map((p, i) => ': ' + (i * 8) + ' 6 ' + p + ' la ').join('\n') + '\nE\n';
   const r3 = await newPage({ viewport: { width: 960, height: 540 } });

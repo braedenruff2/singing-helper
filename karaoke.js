@@ -6,7 +6,7 @@ import { parseUltraStar } from './lyrics.js';
 // parseUltraStar (lyrics.js) turns a chart into timed notes for singing; this keeps every header and event in order
 // so a chart can be saved again unchanged (or with an edited header, e.g. #GAP after syncing).
 // { head: [[KEY, value], ...], parts: [{ p: null|1|2, events: [{kind, beat, len, pitch, text} | {kind: '-', beat, next}] }] }
-const NOTE = /^([:*FRG])\s+(-?\d+)\s+(\d+)\s+(-?\d+)(?: (.*))?$/;
+const NOTE = /^([:*FRG])\s+(-?\d+)\s+(\d+)\s+(-?\d+)(?:\s(.*))?$/; // one space or tab before the text, like lyrics.js
 export function readUltraStar(text) {
   const head = [];
   const parts = [{ p: null, events: [] }];
@@ -69,7 +69,7 @@ export function chartToUltraStar(chart, meta = {}) {
   for (const n of notes) {
     const b = beat(n.t);
     if (prevEnd != null && starts.has(Math.round(n.t))) events.push({ kind: '-', beat: Math.min(prevEnd, b) });
-    events.push({ kind: n.free ? 'F' : n.golden ? '*' : ':', beat: b, len: Math.max(1, Math.round(n.dur / 10)), pitch: Math.round(n.midi) - 60, text: n.text || '' });
+    events.push({ kind: n.rap ? (n.golden ? 'G' : 'R') : n.free ? 'F' : n.golden ? '*' : ':', beat: b, len: Math.max(1, Math.round(n.dur / 10)), pitch: Math.round(n.midi) - 60, text: n.text || '' });
     prevEnd = b + Math.max(1, Math.round(n.dur / 10));
   }
   return writeUltraStar({ head, parts: [{ p: null, events }] });
@@ -91,7 +91,9 @@ export class Scorer {
     this.fold = opts.fold !== false;
     this.hit = new Float64Array(this.notes.length); // ms sung right, per note
     this.last = null; this.k = 0;
-    let w = 0; for (const n of this.notes) if (!n.free) w += n.dur * (n.golden ? 2 : 1);
+    // rap notes (R, golden rap G) count for being heard on time, at any pitch; freestyle (F) isn't scored
+    this.scored = (n) => !n.free || !!n.rap;
+    let w = 0; for (const n of this.notes) if (this.scored(n)) w += n.dur * (n.golden ? 2 : 1);
     this.weight = w;
   }
   noteAt(t) {
@@ -102,24 +104,33 @@ export class Scorer {
     return n && t >= n.t && t < n.t + n.dur ? this.k : -1;
   }
   // t: song time (ms) the sound was sung at; midi: sung pitch or null for silence
+  // The pitch counts for the time since the frame before (at most 60 ms), shared between the notes that time covers,
+  // so a note's last few ms (after its last frame) count too: perfect singing reaches 10000.
   frame(t, midi) {
     const dt = this.last == null || t < this.last ? 0 : Math.min(60, t - this.last);
     this.last = t;
     if (midi == null || !isFinite(midi) || !dt) return null;
+    const from = t - dt, ns = this.notes;
     const i = this.noteAt(t);
+    let j = i >= 0 ? i : this.k;
+    while (j > 0 && ns[j - 1].t + ns[j - 1].dur > from) j--;
+    for (; j < ns.length && ns[j].t < t; j++) {
+      const n = ns[j], a = Math.max(from, n.t), b = Math.min(t, n.t + n.dur);
+      if (b <= a || !this.scored(n)) continue;
+      if (n.rap || Math.abs((this.fold ? foldTo(midi, n.midi) : midi) - n.midi) <= this.tol) this.hit[j] = Math.min(n.dur, this.hit[j] + (b - a));
+    }
     if (i < 0) return null;
-    const n = this.notes[i];
-    if (n.free) return null;
+    const n = ns[i];
+    if (!this.scored(n)) return null;
+    if (n.rap) return { i, ok: true, off: 0 };
     const m = this.fold ? foldTo(midi, n.midi) : midi;
-    const ok = Math.abs(m - n.midi) <= this.tol;
-    if (ok) this.hit[i] = Math.min(n.dur, this.hit[i] + dt);
-    return { i, ok, off: m - n.midi };
+    return { i, ok: Math.abs(m - n.midi) <= this.tol, off: m - n.midi };
   }
   noteScore(i) { const n = this.notes[i]; return n && n.dur ? this.hit[i] / n.dur : 0; }
   get points() {
     if (!this.weight) return 0;
     let s = 0;
-    this.notes.forEach((n, i) => { if (!n.free) s += this.hit[i] * (n.golden ? 2 : 1); });
+    this.notes.forEach((n, i) => { if (this.scored(n)) s += this.hit[i] * (n.golden ? 2 : 1); });
     return Math.round((10000 * s) / this.weight);
   }
   reset() { this.hit.fill(0); this.last = null; this.k = 0; }
@@ -175,8 +186,12 @@ export function estimateLag(chart, frames, opts = {}) {
 // ---- The lyric lines on screen -------------------------------------------------------------------------------
 // The line being sung (or coming up next) and the one after it; each word's share sung so far (for the wipe), and
 // a countdown (0..1) while a line is still to come after a gap of more than 3 s.
+// A sung line stays up at most HOLD ms after its last word (then the next line takes over, with the countdown dots
+// after a long gap); before, a line stayed until the next one's first note, all through an instrumental.
+export const HOLD = 1000;
+const lineDone = (l) => (l.words && l.words.length ? Math.min(l.end, l.words[l.words.length - 1].end + HOLD) : l.end);
 export function lyricView(lines, t) {
-  let cur = lines.findIndex((l) => l.end > t);
+  let cur = lines.findIndex((l) => lineDone(l) > t);
   if (cur < 0) return { cur: -1, next: -1, words: [], countdown: 0 };
   const l = lines[cur];
   const words = (l.words && l.words.length ? l.words : [{ t: l.t, end: l.end, text: l.text }]).map((w) => ({
@@ -187,6 +202,20 @@ export function lyricView(lines, t) {
   const prevEnd = !p ? 0 : p.words && p.words.length ? p.words[p.words.length - 1].end : p.end;
   const countdown = t < l.t && l.t - prevEnd > 3000 ? Math.min(1, (l.t - t) / 3000) : 0;
   return { cur, next: cur + 1 < lines.length ? cur + 1 : -1, words, countdown };
+}
+
+// Duets: the lyric lines of every part, in time order, each with its part (1, 2, ...), so both singers see their words
+// (scoring and pitch bars stay on the chart's own part). A one-part chart gives its lines with part 1.
+export function duetLines(text, chart) {
+  const tag = (ls, p) => ls.map((l) => Object.assign({}, l, { part: p }));
+  let all = tag(chart.lines || [], chart.part || 1);
+  for (let k = 1; k <= (chart.parts || 1); k++) {
+    if (k === (chart.part || 1)) continue;
+    let c = null;
+    try { c = parseUltraStar(text, { part: k }); } catch (e) { c = null; }
+    if (c && c.part === k) all = all.concat(tag(c.lines, k));
+  }
+  return all.sort((a, b) => a.t - b.t || a.part - b.part);
 }
 
 // ---- Phone -> TV messages -----------------------------------------------------------------------------------

@@ -128,7 +128,9 @@ it to the TV. No screen mirroring (it adds about a second of delay).
   singing: big lyrics with a gold wipe and countdown dots before a line after a long gap, a progress line, and with
   **Pitch bars: On** the song's notes scrolling past (gold = golden notes, green once sung right) with your pitch as
   dots (white on the note, red off it) and a karaoke-style score out of 10,000 (golden notes count double; any octave
-  counts; **Level** Easy/Normal/Hard = within 1.5 / 0.75 / 0.5 semitones). The best score per song is kept on the TV.
+  counts; rap notes `R` / golden rap `G` count for being heard on time at any pitch; freestyle `F` isn't scored;
+  **Level** Easy/Normal/Hard = within 1.5 / 0.75 / 0.5 semitones). The best score per song is kept on the TV. A sung
+  line stays up 1 s after its last word; after a long instrumental the next line shows with the countdown dots.
   **Mic delay** (default 120 ms) lines your pitch up with the song: raise it if your pitch dots trail the bars. After
   a song the TV works out how late your pitch really arrived (from where your note changes land against the song's)
   and, when it's clearly off, offers that delay with the score it would have given ("Use 330 ms from now on").
@@ -143,6 +145,8 @@ it to the TV. No screen mirroring (it adds about a second of delay).
   (it lets go of the mic in the background).
 - **One singer only**: the receiver mixes every mic into one signal, so for duets or group songs untick sending on
   the phone and turn Pitch bars off on the TV (lyrics only, no score). The app doesn't try to separate singers.
+  Duet charts (P1/P2) show both singers' lines in time order: the second singer's in green, with names on the next
+  line (from #P1/#P2 or #DUETSINGERP1/P2); pitch bars and the score follow singer 1.
 - **Songs**: UltraStar `.txt` files are read and can be written back exactly (`karaoke.js`: `readUltraStar` /
   `writeUltraStar`, and `chartToUltraStar` for a timed chart), so later a synced offset or a chart made from his own
   audio can be saved for the TV.
