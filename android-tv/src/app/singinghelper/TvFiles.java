@@ -101,6 +101,13 @@ final class TvFiles {
 
     /** The phone asks "who's there?" ({"v":1,"type":"hello",...}): answered directly, not only passed to the page. */
     static boolean isHello(String msg) { return msg != null && msg.length() < 512 && msg.contains("\"type\":\"hello\""); }
+    /** The TV answers the phone's pitch messages about once a second ({"v":1,"type":"ack"}), so the phone can say
+     *  whether the TV really hears it (UDP itself never says when nobody is listening). */
+    static final long ACK_MS = 1000;
+    static boolean ackDue(String msg, long lastAck, long now) {
+        return msg != null && msg.length() < 512 && msg.contains("\"type\":\"pitch\"") && (now - lastAck >= ACK_MS || now < lastAck);
+    }
+    static String ackReply() { return "{\"v\":1,\"type\":\"ack\"}"; }
     static String helloReply(String name, String ip) {
         return "{\"v\":1,\"type\":\"tv\",\"name\":" + Assets.quote(name) + ",\"ip\":" + Assets.quote(ip) + "}";
     }

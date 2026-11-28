@@ -1373,7 +1373,9 @@ for (const id of PREF_IDS) $(id).addEventListener('change', savePrefs);
 // receiver plugged in, sends the singer's pitch to it over Wi-Fi (UDP, via the app). About 50 pitches a second while
 // singing, a "not singing" every 100 ms otherwise. One singer only: the receiver mixes every mic into one signal.
 // seq starts from the clock (20 ms steps), so after the app restarts the TV still sees newer numbers
-const tvLink = { on: false, ip: localStorage.getItem('tv_ip') || '', seq: Math.floor(Date.now() / 20) % 0x7fffffff, last: -1e9, sent: 0, failed: 0 };
+const tvLink = { on: false, ip: localStorage.getItem('tv_ip') || '', seq: Math.floor(Date.now() / 20) % 0x7fffffff, last: -1e9, sent: 0, failed: 0, ack: 0, since: 0 };
+// the TV app answers about once a second while it gets the pitch (UDP alone never says nobody is listening)
+window.SHTVAck = (ip) => { if (ip === tvLink.ip) tvLink.ack = Date.now(); };
 function tvFeed(hz, conf, now) {
   if (!tvLink.on || !tvLink.ip || !NATIVE || !NATIVE.tvSend) return;
   if (now - tvLink.last < (hz > 0 ? 20 : 100)) return;
@@ -1395,17 +1397,21 @@ function tvPanel() {
   const show = () => {
     if (!tvLink.on) st.textContent = tvLink.ip ? 'Not sending.' : 'Type the address the TV shows, or Find TV.';
     else if (!state.node) st.textContent = 'Start mic to send your pitch.';
-    else st.textContent = 'Sending to ' + tvLink.ip + (tvLink.failed > tvLink.sent ? ': the TV isn’t taking it (same Wi-Fi? Singing Helper TV open?)' : '.');
+    else {
+      const now = Date.now(), heard = now - tvLink.ack < 3500, waited = tvLink.sent > 0 && now - tvLink.since > 4000;
+      st.textContent = 'Sending to ' + tvLink.ip + (tvLink.failed > tvLink.sent ? ': the TV isn’t taking it (same Wi-Fi? Singing Helper TV open?)'
+        : heard ? ': the TV hears it.' : waited ? ', but the TV isn’t answering. Is Singing Helper TV open (and updated), on the same Wi-Fi? Find TV again if its address changed.' : '.');
+    }
   };
   ip.onchange = () => {
     const v = ip.value.trim();
     if (v && !ok(v)) { st.textContent = 'That isn’t a home-network address (like 192.168.1.50).'; return; }
-    tvLink.ip = v; try { localStorage.setItem('tv_ip', v); } catch (_) { /* fine */ }
+    tvLink.ip = v; tvLink.ack = 0; tvLink.since = Date.now(); try { localStorage.setItem('tv_ip', v); } catch (_) { /* fine */ }
     show();
   };
   on.onchange = () => {
     if (on.checked && !ok(tvLink.ip)) { on.checked = false; st.textContent = 'Type the TV’s address first, or Find TV.'; return; }
-    tvLink.on = on.checked; tvLink.sent = tvLink.failed = 0;
+    tvLink.on = on.checked; tvLink.sent = tvLink.failed = 0; tvLink.ack = 0; tvLink.since = Date.now();
     if (tvLink.on && !state.node) startMic().catch(() => {}).finally(show);
     show();
   };
@@ -1413,7 +1419,7 @@ function tvPanel() {
   window.SHTVFound = (list) => {
     $('tv-find').disabled = false;
     if (!Array.isArray(list) || !list.length) { st.textContent = 'No TV answered. Is Singing Helper TV open, on the same Wi-Fi? You can type its address.'; return; }
-    tvLink.ip = list[0].ip; ip.value = tvLink.ip; try { localStorage.setItem('tv_ip', tvLink.ip); } catch (_) { /* fine */ }
+    tvLink.ip = list[0].ip; tvLink.ack = 0; tvLink.since = Date.now(); ip.value = tvLink.ip; try { localStorage.setItem('tv_ip', tvLink.ip); } catch (_) { /* fine */ }
     st.textContent = 'Found ' + list[0].name + ' (' + list[0].ip + ').' + (list.length > 1 ? ' ' + (list.length - 1) + ' more answered; type another address to use it.' : '');
   };
   setInterval(() => { if (tvLink.on) show(); }, 2000);

@@ -51,6 +51,7 @@ public class TvActivity extends Activity {
     private File songs;
     private volatile boolean running;
     private volatile DatagramSocket udp;
+    private long lastAck; // when the phone's pitch was last answered (TvFiles.ackDue)
     private volatile ServerSocket http;
     private int wrongCodes;
     private long lockedUntil;
@@ -145,6 +146,12 @@ public class TvActivity extends Activity {
                 String msg = new String(p.getData(), p.getOffset(), p.getLength(), StandardCharsets.UTF_8);
                 if (TvFiles.isHello(msg)) {
                     byte[] r = TvFiles.helloReply(Build.MODEL, ip()).getBytes(StandardCharsets.UTF_8);
+                    try { s.send(new DatagramPacket(r, r.length, p.getAddress(), p.getPort())); } catch (Exception ignored) { }
+                }
+                long now = System.currentTimeMillis();
+                if (TvFiles.ackDue(msg, lastAck, now)) {
+                    lastAck = now;
+                    byte[] r = TvFiles.ackReply().getBytes(StandardCharsets.UTF_8);
                     try { s.send(new DatagramPacket(r, r.length, p.getAddress(), p.getPort())); } catch (Exception ignored) { }
                 }
                 toPage("window.SHTV&&SHTV.message(" + Assets.quote(msg) + ")");

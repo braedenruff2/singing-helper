@@ -256,11 +256,28 @@ public class MainActivity extends Activity {
         @JavascriptInterface public boolean tvSend(String ip, String msg) {
             if (!Assets.ownPage(pageHost) || !Assets.lanIp(ip) || msg == null || msg.length() > 512) return false;
             try {
-                if (tvSocket == null) tvSocket = new java.net.DatagramSocket();
+                if (tvSocket == null) { tvSocket = new java.net.DatagramSocket(); tvAcks(tvSocket); }
                 byte[] b = msg.getBytes(java.nio.charset.StandardCharsets.UTF_8);
                 tvSocket.send(new java.net.DatagramPacket(b, b.length, java.net.InetAddress.getByName(ip), TV_PORT));
                 return true;
             } catch (Exception e) { return false; }
+        }
+        /** The TV answers pitch messages about once a second; each answer goes to window.SHTVAck(ip). */
+        private void tvAcks(final java.net.DatagramSocket s) {
+            new Thread(() -> {
+                byte[] buf = new byte[600];
+                while (!s.isClosed()) {
+                    try {
+                        java.net.DatagramPacket p = new java.net.DatagramPacket(buf, buf.length);
+                        s.receive(p);
+                        String ip = p.getAddress().getHostAddress();
+                        String txt = new String(p.getData(), 0, p.getLength(), java.nio.charset.StandardCharsets.UTF_8);
+                        if (!txt.contains("\"type\":\"ack\"") || !Assets.lanIp(ip)) continue;
+                        final String js = "window.SHTVAck&&SHTVAck(" + Assets.quote(ip) + ")";
+                        runOnUiThread(() -> { if (web != null) web.evaluateJavascript(js, null); });
+                    } catch (Exception e) { if (s.isClosed()) return; }
+                }
+            }, "sh-tv-acks").start();
         }
         /** Asks the home network "any Singing Helper TV there?"; answers go to window.SHTVFound([{name, ip}]) after 1.5 s. */
         @JavascriptInterface public void tvFind() {

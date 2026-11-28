@@ -46,6 +46,14 @@ test('tv-phone', async ({ url, newPage, check, sleep }) => {
   check('... every message valid for the TV, in order', got.valid && got.seqs && got.ips.join() === '192.168.1.50', JSON.stringify(got));
   check('... with sung pitches in it (the fake mic sings)', got.sung > 5, got.sung);
   check('status says it\'s sending', /Sending to 192\.168\.1\.50/.test(await p.textContent('#tv-status')), await p.textContent('#tv-status'));
+  // 28 Nov: UDP never says nobody is listening: the TV answers about once a second, and the phone says whether it does
+  await p.waitForFunction(() => /isn’t answering/.test(document.querySelector('#tv-status').textContent), null, { timeout: 5000 });
+  check('no answer from the TV: the phone says so (TV app open? same Wi-Fi?)', /Singing Helper TV open/.test(await p.textContent('#tv-status')), await p.textContent('#tv-status'));
+  await p.evaluate(() => window.SHTVAck('192.168.1.99')); await sleep(2300);
+  check('... an answer from another address doesn\'t count', /isn’t answering/.test(await p.textContent('#tv-status')));
+  await p.evaluate(() => window.SHTVAck('192.168.1.50'));
+  await p.waitForFunction(() => /the TV hears it/.test(document.querySelector('#tv-status').textContent), null, { timeout: 3000 });
+  check('the TV answers: "the TV hears it"', true);
   await p.uncheck('#tv-on');
   const n0 = await p.evaluate(() => window.__sent.length); await sleep(400);
   check('untick: nothing more is sent', (await p.evaluate(() => window.__sent.length)) === n0);

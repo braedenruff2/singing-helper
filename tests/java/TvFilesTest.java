@@ -26,6 +26,9 @@ public class TvFilesTest {
             && TvFiles.query("/upload", "code") == null && TvFiles.query("/upload?x=1", "code") == null && "".equals(TvFiles.query("/u?code", "code")) && TvFiles.query(null, "a") == null);
         check("route without the query", "/upload".equals(TvFiles.route("/upload?x=1")) && "/".equals(TvFiles.route("/")) && "".equals(TvFiles.route(null)));
         check("the code must match exactly", TvFiles.codeOk("0427", "0427") && !TvFiles.codeOk("0428", "0427") && !TvFiles.codeOk("042", "0427") && !TvFiles.codeOk(null, "0427") && !TvFiles.codeOk("04270", "0427"));
+        String pitch = "{\"v\":1,\"type\":\"pitch\",\"seq\":5,\"hz\":220}";
+        check("pitch answered about once a second (the phone shows the TV hears it)", TvFiles.ackDue(pitch, 0, 5000) && !TvFiles.ackDue(pitch, 5000, 5900) && TvFiles.ackDue(pitch, 5000, 6000)
+            && !TvFiles.ackDue("{\"v\":1,\"type\":\"hello\"}", 0, 5000) && !TvFiles.ackDue(null, 0, 5000) && TvFiles.ackDue(pitch, 9000, 100) && TvFiles.ackReply().contains("\"type\":\"ack\""));
         check("hello found and answered", TvFiles.isHello("{\"v\":1,\"type\":\"hello\",\"name\":\"Pixel\"}") && !TvFiles.isHello("{\"v\":1,\"type\":\"pitch\"}") && !TvFiles.isHello(null)
             && TvFiles.helloReply("AFT\"x", "192.168.1.9").equals("{\"v\":1,\"type\":\"tv\",\"name\":\"AFT\\\"x\",\"ip\":\"192.168.1.9\"}"));
         check("upload page only by the TV's own address", TvFiles.hostOk("192.168.1.50:47322", "192.168.1.50") && TvFiles.hostOk("192.168.1.50", "192.168.1.50")

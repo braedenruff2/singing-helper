@@ -141,7 +141,9 @@ it to the TV. No screen mirroring (it adds about a second of delay).
 - **The phone**: in the Singing Helper phone app, side panel **Karaoke on TV**: **Find TV** (or type the address the
   TV shows), then tick **Send my pitch to the TV** (it starts the mic). On the TV's song list the top line then says
   "Phone mic connected · hearing A3" while you sing: a quick check that the mic reaches the TV before you start. It sends about 50 pitch readings a second over
-  Wi-Fi (UDP port 47321, only to home-network addresses) while you sing. Keep the app open on the phone while singing
+  Wi-Fi (UDP port 47321, only to home-network addresses) while you sing. The TV answers about once a second, so the phone's
+  panel says "the TV hears it", or after 4 s without an answer that the TV isn't answering (app closed, other Wi-Fi,
+  or its address changed: Find TV again). Keep the app open on the phone while singing
   (it lets go of the mic in the background).
 - **One singer only**: the receiver mixes every mic into one signal, so for duets or group songs untick sending on
   the phone and turn Pitch bars off on the TV (lyrics only, no score). The app doesn't try to separate singers.
