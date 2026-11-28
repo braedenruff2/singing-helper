@@ -87,11 +87,11 @@ export function parseUltraStar(text, opts = {}) {
   const head = {};
   const notes = [];
   const breaks = [];
-  let rel = 0; // #RELATIVE:yes charts count beats from the start of each line
+  const relOf = { 1: 0 }; // #RELATIVE:yes charts count beats from the start of each line, per part
   let part = 1; // duet charts: P1 / P2 sections
-  const tempo = []; // mid-song BPM changes (B lines) of the chosen part
+  const tempo = []; // mid-song BPM changes (B lines): one list for the whole song, whichever part they're written in
   for (const raw of text.split(/\r?\n/)) {
-    const line = raw.replace(/^﻿/, '');
+    const line = raw.replace(/^\uFEFF/, '');
     if (line.startsWith('#')) {
       const i = line.indexOf(':');
       if (i > 0) head[line.slice(1, i).toUpperCase()] = line.slice(i + 1).trim();
@@ -99,22 +99,25 @@ export function parseUltraStar(text, opts = {}) {
     }
     // duets: only the chosen singer's part; the other's notes would be mixed in with it
     const pm = /^P\s*(\d+)\s*$/.exec(line);
-    if (pm) { part = +pm[1]; parts = Math.max(parts, part); rel = 0; continue; } // each part counts its own beats
+    if (pm) { part = +pm[1]; parts = Math.max(parts, part); relOf[part] = 0; continue; } // each part counts its own beats
     if (line.startsWith('E')) break;
+    const rel = relOf[part] || 0;
+    // "B beat bpm": the tempo changes from that beat on (older charts and some live recordings); in a duet both
+    // singers follow it, so a B line counts whichever part it sits in (or before P1)
+    const bc = /^B\s+(-?\d+)\s+([\d.,]+)\s*$/.exec(line);
+    if (bc) { const v = parseFloat(bc[2].replace(',', '.')); if (v > 0) tempo.push({ beat: +bc[1] + rel, bpm: v }); continue; }
+    const b = /^-\s+(-?\d+)(?:\s+(-?\d+))?/.exec(line);
+    if (b) {
+      if (part === want) breaks.push(+b[1] + rel);
+      // relative mode: "- a b" ends the line at a and starts the next one b beats on (just a when there's one number)
+      if (/^yes$/i.test(head.RELATIVE || '')) relOf[part] = rel + (b[2] != null ? +b[2] : +b[1]);
+      continue;
+    }
     if (part !== want) continue;
     const m = /^([:*FRG])\s+(-?\d+)\s+(\d+)\s+(-?\d+)\s?(.*)$/.exec(line);
     if (m) {
       notes.push({ beat: +m[2] + rel, len: +m[3], pitch: +m[4], text: m[5], golden: m[1] === '*' || m[1] === 'G', free: m[1] === 'F' || m[1] === 'R' || m[1] === 'G', rap: m[1] === 'R' || m[1] === 'G' }); // G = golden rap: pitch doesn't matter
       continue;
-    }
-    // "B beat bpm": the tempo changes from that beat on (older charts and some live recordings)
-    const bc = /^B\s+(-?\d+)\s+([\d.,]+)\s*$/.exec(line);
-    if (bc) { const v = parseFloat(bc[2].replace(',', '.')); if (v > 0) tempo.push({ beat: +bc[1] + rel, bpm: v }); continue; }
-    const b = /^-\s+(-?\d+)(?:\s+(-?\d+))?/.exec(line);
-    if (b) {
-      breaks.push(+b[1] + rel);
-      // relative mode: "- a b" ends the line at a and starts the next one b beats on (just a when there's one number)
-      if (/^yes$/i.test(head.RELATIVE || '')) rel += b[2] != null ? +b[2] : +b[1];
     }
   }
   const bpm = parseFloat((head.BPM || '0').replace(',', '.'));

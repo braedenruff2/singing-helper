@@ -108,6 +108,16 @@ const check = (label, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${la
   check('UltraStar B lines: a zero or broken one is ignored', bad.notes[0].t === 8 * m1);
   const rel = parseUltraStar('#BPM:150\n#RELATIVE:yes\n: 0 2 0 a\n- 8 8\nB 0 300\n: 4 2 0 b\nE');
   check('UltraStar B lines in relative mode count from the line', Math.abs(rel.notes[1].t - (8 * m1 + 4 * m2)) < 1e-6, rel.notes[1].t);
+  // duets: both singers follow a tempo change, whichever part it is written in (or before P1)
+  const du = '#BPM:150\n#GAP:0\nP1\n: 0 4 0 a\nB 16 300\n: 32 4 0 b\nP2\n: 0 4 0 X\n: 32 4 0 Y\nE';
+  const d1 = parseUltraStar(du, { part: 1 }), d2 = parseUltraStar(du, { part: 2 });
+  check('UltraStar duet: a B line under P1 times P2 too', Math.abs(d2.notes[1].t - d1.notes[1].t) < 1e-6 && Math.abs(d2.notes[1].t - (16 * m1 + 16 * m2)) < 1e-6, d1.notes[1].t + ' vs ' + d2.notes[1].t);
+  const du0 = parseUltraStar('#BPM:150\nB 0 300\nP1\n: 8 4 0 a\nP2\n: 8 4 0 X\nE', { part: 2 });
+  check('UltraStar duet: a B line before P1 counts for P2', Math.abs(du0.notes[0].t - 8 * m2) < 1e-6, du0.notes[0].t);
+  const duUnder2 = parseUltraStar('#BPM:150\nP1\n: 32 4 0 a\nP2\nB 16 300\n: 0 4 0 X\nE', { part: 1 });
+  check('UltraStar duet: a B line under P2 times P1 too', Math.abs(duUnder2.notes[0].t - (16 * m1 + 16 * m2)) < 1e-6, duUnder2.notes[0].t);
+  const durel = parseUltraStar('#BPM:150\n#RELATIVE:yes\nP1\n: 0 2 0 a\n- 8 8\nB 0 300\n: 4 2 0 b\nP2\n: 0 2 0 X\n- 8 8\n: 4 2 0 Y\nE', { part: 2 });
+  check('UltraStar duet, relative: P2 lines and P1\'s change line up', Math.abs(durel.notes[1].t - (8 * m1 + 4 * m2)) < 1e-6 && durel.lines.length === 2, durel.notes[1].t);
 }
 {
   // relative mode: beats restart after each break; "- 8 12" = the next line starts 12 beats after the last one did
